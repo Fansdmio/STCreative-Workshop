@@ -1,0 +1,7 @@
+.opencode
+node_modules
+.env
+*.jpg
+DEPLOY.md
+dist
+.vscode

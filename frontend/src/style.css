@@ -1,0 +1,256 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+/* 引入手绘风格字体 Fredoka + Nunito */
+@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@300;400;500;600;700;800&display=swap');
+
+@layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    font-family: 'Nunito', 'Inter', system-ui, -apple-system, sans-serif;
+    /* 奶油纸张背景 */
+    background-color: #FFFBF0;
+    background-image:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='400' height='400' filter='url(%23noise)' opacity='0.035'/%3E%3C/svg%3E");
+    color: #431407;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Fredoka', 'Nunito', system-ui, sans-serif;
+    font-weight: 600;
+  }
+
+  #app {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* 手绘风格滚动条 */
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-track { background: #FFF3D6; border-radius: 99px; }
+  ::-webkit-scrollbar-thumb { background: #F97316; border-radius: 99px; border: 2px solid #FFF3D6; }
+}
+
+/* ===== 动画关键帧 ===== */
+@keyframes wiggle {
+  0%, 100% { transform: rotate(-0.5deg); }
+  50% { transform: rotate(0.5deg); }
+}
+
+@keyframes float-up {
+  0%, 100% { transform: translateY(0px) rotate(-1deg); }
+  50% { transform: translateY(-6px) rotate(1deg); }
+}
+
+@keyframes sketch-in {
+  from { opacity: 0; transform: translateY(16px) rotate(-2deg) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) rotate(0deg) scale(1); }
+}
+
+@keyframes blob-pulse {
+  0%, 100% { transform: scale(1) rotate(0deg); }
+  33% { transform: scale(1.04) rotate(2deg); }
+  66% { transform: scale(0.97) rotate(-1.5deg); }
+}
+
+@layer components {
+
+  /* ===== 主按钮：珊瑚橙 ===== */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2
+           font-bold text-sm text-white
+           px-5 py-2.5 cursor-pointer
+           transition-all duration-200
+           focus:outline-none
+           disabled:opacity-50 disabled:cursor-not-allowed;
+    font-family: 'Fredoka', sans-serif;
+    font-size: 0.95rem;
+    letter-spacing: 0.01em;
+    background: #F97316;
+    border-radius: 999px;
+    box-shadow: 3px 3px 0px 0px #C2410C, 0 0 0 2.5px #C2410C;
+    transform: rotate(-0.5deg);
+  }
+  .btn-primary:hover {
+    background: #EA580C;
+    transform: rotate(0.5deg) translateY(-1px);
+    box-shadow: 4px 4px 0px 0px #9A3412, 0 0 0 2.5px #9A3412;
+  }
+  .btn-primary:active {
+    transform: rotate(0deg) translateY(1px);
+    box-shadow: 1px 1px 0px 0px #C2410C, 0 0 0 2.5px #C2410C;
+  }
+
+  /* ===== 次按钮：橙色描边 ===== */
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2
+           font-bold text-sm
+           px-5 py-2.5 cursor-pointer
+           transition-all duration-200
+           focus:outline-none;
+    font-family: 'Fredoka', sans-serif;
+    font-size: 0.95rem;
+    color: #EA580C;
+    background: #FFFBF0;
+    border-radius: 999px;
+    box-shadow: 3px 3px 0px 0px #EA580C, 0 0 0 2.5px #EA580C;
+    transform: rotate(0.4deg);
+  }
+  .btn-secondary:hover {
+    background: #FFF7ED;
+    transform: rotate(-0.4deg) translateY(-1px);
+    box-shadow: 4px 4px 0px 0px #C2410C, 0 0 0 2.5px #C2410C;
+  }
+  .btn-secondary:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  /* ===== 危险按钮 ===== */
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2
+           font-bold text-sm text-white
+           px-5 py-2.5 cursor-pointer
+           transition-all duration-200
+           focus:outline-none;
+    font-family: 'Fredoka', sans-serif;
+    background: #EF4444;
+    border-radius: 999px;
+    box-shadow: 3px 3px 0px 0px #991B1B, 0 0 0 2.5px #991B1B;
+    transform: rotate(-0.3deg);
+  }
+  .btn-danger:hover {
+    background: #DC2626;
+    transform: rotate(0.3deg) translateY(-1px);
+    box-shadow: 4px 4px 0px 0px #7F1D1D, 0 0 0 2.5px #7F1D1D;
+  }
+
+  /* ===== 卡片：手绘便签 — 彩色主题轮换 ===== */
+  .card {
+    @apply bg-white flex flex-col transition-all duration-200;
+    border-radius: 16px;
+    box-shadow: 4px 4px 0px 0px #F97316, 0 0 0 2px #F97316;
+    border: 2.5px solid #F97316;
+    transform: rotate(-0.4deg);
+  }
+  .card:hover {
+    transform: rotate(0.3deg) translateY(-3px) scale(1.01);
+    box-shadow: 6px 6px 0px 0px #EA580C, 0 0 0 2px #EA580C;
+    border-color: #EA580C;
+  }
+
+  .card:nth-child(3n+1) {
+    box-shadow: 4px 4px 0px 0px #06B6D4, 0 0 0 2px #06B6D4;
+    border-color: #06B6D4;
+    transform: rotate(0.3deg);
+  }
+  .card:nth-child(3n+1):hover {
+    box-shadow: 6px 6px 0px 0px #0891B2, 0 0 0 2px #0891B2;
+    border-color: #0891B2;
+  }
+
+  .card:nth-child(3n+2) {
+    box-shadow: 4px 4px 0px 0px #EC4899, 0 0 0 2px #EC4899;
+    border-color: #EC4899;
+    transform: rotate(-0.5deg);
+  }
+  .card:nth-child(3n+2):hover {
+    box-shadow: 6px 6px 0px 0px #BE185D, 0 0 0 2px #BE185D;
+    border-color: #BE185D;
+  }
+
+  .card:nth-child(3n+3) {
+    box-shadow: 4px 4px 0px 0px #F97316, 0 0 0 2px #F97316;
+    border-color: #F97316;
+    transform: rotate(-0.4deg);
+  }
+
+  /* ===== 标签徽章 ===== */
+  .tag-badge {
+    @apply inline-flex items-center px-3 py-0.5 text-xs font-bold
+           cursor-pointer transition-all duration-150 select-none;
+    font-family: 'Fredoka', sans-serif;
+    font-size: 0.75rem;
+    border-radius: 999px;
+    background: #FEF9C3;
+    color: #854D0E;
+    border: 2px solid #EAB308;
+    box-shadow: 2px 2px 0px 0px #CA8A04;
+    transform: rotate(-0.5deg);
+  }
+  .tag-badge:hover {
+    transform: rotate(0.5deg) scale(1.05);
+    box-shadow: 3px 3px 0px 0px #CA8A04;
+  }
+
+  .tag-badge:nth-child(4n+1) {
+    background: #FCE7F3; color: #9D174D;
+    border-color: #EC4899; box-shadow: 2px 2px 0px 0px #BE185D;
+  }
+  .tag-badge:nth-child(4n+2) {
+    background: #DCFCE7; color: #14532D;
+    border-color: #22C55E; box-shadow: 2px 2px 0px 0px #15803D;
+  }
+  .tag-badge:nth-child(4n+3) {
+    background: #CFFAFE; color: #164E63;
+    border-color: #06B6D4; box-shadow: 2px 2px 0px 0px #0891B2;
+  }
+  .tag-badge:nth-child(4n+4) {
+    background: #FEF9C3; color: #854D0E;
+    border-color: #EAB308; box-shadow: 2px 2px 0px 0px #CA8A04;
+  }
+
+  .tag-badge-active {
+    background: #F97316 !important;
+    color: white !important;
+    border-color: #C2410C !important;
+    box-shadow: 3px 3px 0px 0px #9A3412 !important;
+    transform: rotate(0deg) scale(1.08) !important;
+  }
+
+  /* ===== 输入框 ===== */
+  .input {
+    @apply w-full px-4 py-2.5
+           text-gray-900 placeholder-gray-400
+           focus:outline-none transition-all duration-200;
+    font-family: 'Nunito', sans-serif;
+    background: #FFFBF0;
+    border: 2.5px solid #FDBA74;
+    border-radius: 12px;
+    box-shadow: 3px 3px 0px 0px #FDBA74;
+  }
+  .input:focus {
+    border-color: #F97316;
+    box-shadow: 4px 4px 0px 0px #F97316;
+    background: white;
+  }
+
+  /* ===== 页面容器 ===== */
+  .page-container {
+    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+
+  /* ===== 手绘涂鸦装饰 ===== */
+  .doodle-dot {
+    @apply rounded-full absolute pointer-events-none;
+    animation: blob-pulse 4s ease-in-out infinite;
+  }
+
+  /* ===== 卡片进入动画 ===== */
+  .card-enter {
+    animation: sketch-in 0.35s ease-out both;
+  }
+}
