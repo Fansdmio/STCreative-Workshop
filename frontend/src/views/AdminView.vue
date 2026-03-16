@@ -362,8 +362,8 @@ onMounted(async () => {
               </p>
             </div>
             <span class="text-xs px-2.5 py-1 rounded-full border font-bold flex-shrink-0"
-              :style="p.section==='chainsaw' ? 'background:#FEE2E2;color:#991B1B;border-color:#FCA5A5;' : 'background:#FFF7ED;color:#78350F;border-color:#FDBA74;'">
-              {{ p.section==='chainsaw' ? '电锯人' : '蒸汽朋克' }}
+              style="background:#FFF7ED;color:#78350F;border-color:#FDBA74;">
+              {{ p.workshop_name || p.section || '未知工坊' }}
             </span>
             <button class="btn-danger text-xs px-3 py-1.5 flex-shrink-0" @click="deletePack(p.id,p.title)">删除</button>
           </div>
@@ -435,8 +435,8 @@ onMounted(async () => {
                       </p>
                     </div>
                     <span class="text-xs px-2 py-0.5 rounded-full border font-bold flex-shrink-0"
-                      :style="pack.section==='chainsaw' ? 'background:#FEE2E2;color:#991B1B;border-color:#FCA5A5;' : 'background:#FFF7ED;color:#78350F;border-color:#FDBA74;'">
-                      {{ pack.section === 'chainsaw' ? '电锯人' : '蒸汽朋克' }}
+                      style="background:#FFF7ED;color:#78350F;border-color:#FDBA74;">
+                      {{ pack.workshop_name || pack.section || '未知工坊' }}
                     </span>
                   </div>
                 </div>

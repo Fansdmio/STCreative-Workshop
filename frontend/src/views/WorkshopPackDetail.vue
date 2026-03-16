@@ -21,10 +21,10 @@ const isStEnv = computed(() => workshopStore.isSillyTavernEnv())
 
 // 返回工坊时携带分区参数
 function goBackToWorkshop() {
-  const section = pack.value?.section
+  const slug = pack.value?.workshop?.slug || pack.value?.section
   router.push({
     name: 'workshop',
-    query: section && section !== 'steampunk' ? { world: section } : {},
+    query: slug && slug !== 'steampunk' ? { workshop: slug } : {},
   })
 }
 
@@ -34,9 +34,10 @@ onMounted(async () => {
     router.push({ name: 'workshop' })
     return
   }
-  // 按 pack 所属分区设置世界书名称
-  if (result.section) {
-    workshopStore.loadWorldbookForSection(result.section)
+  // 按 pack 所属工坊设置世界书名称
+  const slug = result.workshop?.slug || result.section
+  if (slug) {
+    workshopStore.loadWorldbookForSection(slug)
   }
   await workshopStore.scanSubscribedPacks()
 })

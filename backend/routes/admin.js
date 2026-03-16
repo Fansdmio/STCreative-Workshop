@@ -206,11 +206,13 @@ router.get('/users/:id/detail', requireAdmin, (req, res) => {
 
     // 该用户创建的工坊（packs）
     const packs = db.prepare(`
-      SELECT id, title, section, like_count, sub_count, created_at,
-             (SELECT COUNT(*) FROM workshop_entries e WHERE e.pack_id = workshop_packs.id) AS entry_count
-      FROM workshop_packs
-      WHERE author_id = ?
-      ORDER BY created_at DESC
+      SELECT p.id, p.title, p.section, p.like_count, p.sub_count, p.created_at,
+             w.name AS workshop_name,
+             (SELECT COUNT(*) FROM workshop_entries e WHERE e.pack_id = p.id) AS entry_count
+      FROM workshop_packs p
+      LEFT JOIN workshops w ON p.workshop_id = w.id
+      WHERE p.author_id = ?
+      ORDER BY p.created_at DESC
     `).all(req.params.id);
 
     // 该用户上传的条目总数
@@ -250,8 +252,10 @@ router.get('/packs', requireAdmin, (req, res) => {
       total = db.prepare(`SELECT COUNT(*) as c FROM workshop_packs WHERE title LIKE ?`).get(q).c;
       rows = db.prepare(`
         SELECT wp.*, u.username, u.discord_id, u.avatar,
+               w.name AS workshop_name,
                (SELECT COUNT(*) FROM workshop_entries WHERE pack_id = wp.id) as entry_count
         FROM workshop_packs wp JOIN users u ON u.id = wp.author_id
+        LEFT JOIN workshops w ON wp.workshop_id = w.id
         WHERE wp.title LIKE ?
         ORDER BY wp.created_at DESC LIMIT ? OFFSET ?
       `).all(q, limit, offset);
@@ -259,8 +263,10 @@ router.get('/packs', requireAdmin, (req, res) => {
       total = db.prepare(`SELECT COUNT(*) as c FROM workshop_packs`).get().c;
       rows = db.prepare(`
         SELECT wp.*, u.username, u.discord_id, u.avatar,
+               w.name AS workshop_name,
                (SELECT COUNT(*) FROM workshop_entries WHERE pack_id = wp.id) as entry_count
         FROM workshop_packs wp JOIN users u ON u.id = wp.author_id
+        LEFT JOIN workshops w ON wp.workshop_id = w.id
         ORDER BY wp.created_at DESC LIMIT ? OFFSET ?
       `).all(limit, offset);
     }
@@ -275,6 +281,7 @@ router.get('/packs', requireAdmin, (req, res) => {
       title: p.title,
       description: p.description,
       section: p.section || 'steampunk',
+      workshop_name: p.workshop_name || p.section || 'steampunk',
       like_count: p.like_count,
       sub_count: p.sub_count,
       entry_count: p.entry_count || 0,
