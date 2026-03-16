@@ -28,6 +28,13 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/workshop/edit/:id',
+    name: 'workshop-edit',
+    component: () => import('@/views/WorkshopEdit.vue'),
+    meta: { requiresAuth: true },
+    props: true,
+  },
+  {
     path: '/workshop/:packId',
     name: 'workshop-pack-detail',
     component: () => import('@/views/WorkshopPackDetail.vue'),

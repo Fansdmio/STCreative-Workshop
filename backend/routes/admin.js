@@ -204,7 +204,7 @@ router.get('/users/:id/detail', requireAdmin, (req, res) => {
       return `https://cdn.discordapp.com/embed/avatars/${parseInt(discordId) % 5}.png`;
     }
 
-    // 该用户创建的工坊（packs）
+    // 该用户创建的模组（packs）
     const packs = db.prepare(`
       SELECT p.id, p.title, p.section, p.like_count, p.sub_count, p.created_at,
              w.name AS workshop_name,
@@ -214,6 +214,11 @@ router.get('/users/:id/detail', requireAdmin, (req, res) => {
       WHERE p.author_id = ?
       ORDER BY p.created_at DESC
     `).all(req.params.id);
+
+    // 该用户创建的工坊（仅创作者/管理员有）
+    const workshops = (user.role === 'creator' || user.role === 'admin')
+      ? db.prepare(`SELECT id, name, slug, description, status, created_at FROM workshops WHERE author_id = ? ORDER BY created_at DESC`).all(req.params.id)
+      : [];
 
     // 该用户上传的条目总数
     const entryCount = db.prepare(`SELECT COUNT(*) as c FROM workshop_entries WHERE author_id = ?`).get(req.params.id)?.c || 0;
@@ -229,6 +234,7 @@ router.get('/users/:id/detail', requireAdmin, (req, res) => {
           created_at: user.created_at,
         },
         packs,
+        workshops,
         entry_count: entryCount,
       },
     });
@@ -312,6 +318,97 @@ router.delete('/packs/:id', requireAdmin, (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     console.error('[Admin] 删除模组失败:', err);
+    res.status(500).json({ error: '服务器内部错误' });
+  }
+});
+
+// GET /admin/workshops — 工坊申请列表（支持 ?status=pending/active/rejected/all）
+router.get('/workshops', requireAdmin, (req, res) => {
+  try {
+    const db = getDb();
+    const status = req.query.status || 'pending';
+    let rows;
+    if (status === 'all') {
+      rows = db.prepare(`
+        SELECT w.*, u.username, u.discord_id, u.avatar
+        FROM workshops w
+        LEFT JOIN users u ON w.author_id = u.id
+        ORDER BY w.created_at DESC
+      `).all();
+    } else {
+      rows = db.prepare(`
+        SELECT w.*, u.username, u.discord_id, u.avatar
+        FROM workshops w
+        LEFT JOIN users u ON w.author_id = u.id
+        WHERE w.status = ?
+        ORDER BY w.created_at DESC
+      `).all(status);
+    }
+
+    function avatarUrl(discordId, avatar) {
+      if (avatar) return `https://cdn.discordapp.com/avatars/${discordId}/${avatar}.png`;
+      return `https://cdn.discordapp.com/embed/avatars/${parseInt(discordId) % 5}.png`;
+    }
+
+    const data = rows.map(w => ({
+      id: w.id,
+      name: w.name,
+      slug: w.slug,
+      description: w.description || '',
+      worldbook: w.worldbook || '',
+      status: w.status || 'active',
+      author_id: w.author_id || null,
+      created_at: w.created_at,
+      author: w.author_id ? {
+        id: w.author_id,
+        username: w.username || '未知',
+        avatar: avatarUrl(w.discord_id, w.avatar),
+      } : null,
+    }));
+    res.json({ data });
+  } catch (err) {
+    console.error('[Admin] 获取工坊列表失败:', err);
+    res.status(500).json({ error: '服务器内部错误' });
+  }
+});
+
+// POST /admin/workshops/:id/approve — 审批通过工坊申请
+router.post('/workshops/:id/approve', requireAdmin, (req, res) => {
+  try {
+    const db = getDb();
+    const info = db.prepare(`UPDATE workshops SET status = 'active' WHERE id = ? AND status = 'pending'`).run(req.params.id);
+    if (info.changes === 0) return res.status(404).json({ error: '申请不存在或已处理' });
+    res.json({ ok: true, message: '工坊申请已通过' });
+  } catch (err) {
+    console.error('[Admin] 审批工坊失败:', err);
+    res.status(500).json({ error: '服务器内部错误' });
+  }
+});
+
+// POST /admin/workshops/:id/reject — 拒绝工坊申请
+router.post('/workshops/:id/reject', requireAdmin, (req, res) => {
+  try {
+    const db = getDb();
+    const info = db.prepare(`UPDATE workshops SET status = 'rejected' WHERE id = ? AND status = 'pending'`).run(req.params.id);
+    if (info.changes === 0) return res.status(404).json({ error: '申请不存在或已处理' });
+    res.json({ ok: true, message: '工坊申请已拒绝' });
+  } catch (err) {
+    console.error('[Admin] 拒绝工坊失败:', err);
+    res.status(500).json({ error: '服务器内部错误' });
+  }
+});
+
+// DELETE /admin/workshops/:id — 删除工坊（内置工坊不可删除）
+router.delete('/workshops/:id', requireAdmin, (req, res) => {
+  try {
+    const db = getDb();
+    const existing = db.prepare(`SELECT id, author_id FROM workshops WHERE id = ?`).get(req.params.id);
+    if (!existing) return res.status(404).json({ error: '工坊不存在' });
+    if (existing.author_id === null) return res.status(403).json({ error: '内置工坊不可删除' });
+    db.prepare(`DELETE FROM workshops WHERE id = ?`).run(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[Admin] 删除工坊失败:', err);
     res.status(500).json({ error: '服务器内部错误' });
   }
 });

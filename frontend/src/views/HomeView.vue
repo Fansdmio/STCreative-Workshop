@@ -92,6 +92,19 @@
             </svg>
             申请成为创作者
           </RouterLink>
+          <!-- 已登录且是创作者：申请创建工坊 -->
+          <RouterLink
+            v-if="authStore.isLoggedIn && authStore.isCreator && !authStore.loading"
+            to="/workshop/create"
+            class="inline-flex items-center gap-2 font-bold cursor-pointer transition-all duration-200"
+            style="font-family: 'Fredoka', sans-serif; font-size: 1.05rem; background: #FFFBF0; color: #7C3AED; padding: 12px 28px; border-radius: 999px; box-shadow: 4px 4px 0 #7C3AED, 0 0 0 2.5px #7C3AED; transform: rotate(-0.5deg); text-decoration: none;"
+          >
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            申请创建工坊
+          </RouterLink>
         </div>
       </div>
     </div>
@@ -139,13 +152,12 @@
                 v-model="modalSearch"
                 type="text"
                 class="input pl-9 text-sm w-full"
-                placeholder="搜索工坊模组…"
+                placeholder="搜索工坊…"
                 style="font-family:'Nunito',sans-serif;"
-                @keyup.enter="goSearch"
               />
             </div>
             <button
-              v-if="modalSearch.trim()"
+              v-if="false"
               class="btn-primary text-sm"
               @click="goSearch"
             >
@@ -158,7 +170,7 @@
             </div>
             <div v-else class="grid grid-cols-2 gap-4">
               <RouterLink
-                v-for="w in workshopStore.workshops"
+                v-for="w in filteredWorkshops"
                 :key="w.id"
                 :to="`/workshop?workshop=${w.slug}`"
                 class="flex flex-col items-center gap-2 p-5 rounded-2xl transition-all duration-200 cursor-pointer"
@@ -169,7 +181,7 @@
                 <span class="text-xs" style="color:#A8A29E; font-family:'Nunito',sans-serif;">进入 →</span>
               </RouterLink>
               <div
-                v-if="!workshopStore.workshops.length"
+                v-if="!filteredWorkshops.length"
                 class="col-span-2 text-center py-4 text-sm"
                 style="color:#A8A29E; font-family:'Nunito',sans-serif;"
               >
@@ -277,7 +289,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useWorkshopStore } from '@/stores/workshop'
@@ -292,6 +304,13 @@ const modalSearch = ref('')
 
 onMounted(() => {
   workshopStore.fetchWorkshops()
+})
+
+// 按名称实时过滤工坊列表
+const filteredWorkshops = computed(() => {
+  const q = modalSearch.value.trim().toLowerCase()
+  if (!q) return workshopStore.workshops
+  return workshopStore.workshops.filter(w => w.name.toLowerCase().includes(q))
 })
 
 function goSearch() {

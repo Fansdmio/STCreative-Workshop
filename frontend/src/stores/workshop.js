@@ -131,6 +131,29 @@ export const useWorkshopStore = defineStore('workshop', () => {
     }
   }
 
+  async function updateWorkshop(id, payload) {
+    error.value = null
+    try {
+      const res = await fetch(`/api/workshop/workshops/${id}`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        error.value = json.error || '更新工坊失败'
+        return null
+      }
+      // 更新本地缓存
+      workshops.value = workshops.value.map(w => w.id === id ? json.data : w)
+      return json.data
+    } catch (err) {
+      error.value = err.message || '更新工坊失败'
+      return null
+    }
+  }
+
   // ── Pack API 操作 ────────────────────────────────────────────
 
   // fetchPacks(page, { workshop, search, tag, authorId })
@@ -523,6 +546,7 @@ export const useWorkshopStore = defineStore('workshop', () => {
     // 工坊 API
     fetchWorkshops,
     createWorkshop,
+    updateWorkshop,
     // Pack API
     fetchPacks,
     fetchPack,

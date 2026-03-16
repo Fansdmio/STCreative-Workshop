@@ -255,6 +255,13 @@ function initSchema() {
   } catch (_) {
     // 索引已存在，忽略
   }
+
+  // 迁移：给 workshops 添加 status 列（审批状态）
+  try {
+    db.exec(`ALTER TABLE workshops ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`);
+  } catch (_) {
+    // 列已存在，忽略
+  }
 }
 
 module.exports = { getDb };

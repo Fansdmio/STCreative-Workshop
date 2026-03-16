@@ -1,16 +1,17 @@
 <script setup>
 import { ref, watch, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useWorkshopStore } from '@/stores/workshop'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
+const route = useRoute()
 const workshopStore = useWorkshopStore()
 const authStore = useAuthStore()
 
+const workshopId = parseInt(route.params.id)
 const saving = ref(false)
-// 提交成功后显示等待审批提示
-const submitted = ref(false)
+const loadError = ref('')
 
 const form = ref({
   name: '',
@@ -18,7 +19,7 @@ const form = ref({
   worldbook: '',
 })
 
-// ── 创作者门控 ───────────────────────────────────────────────────────
+// ── 权限门控 & 数据加载 ──────────────────────────────────────────────
 onMounted(async () => {
   // 等待 auth 加载完成
   if (authStore.loading) {
@@ -26,8 +27,37 @@ onMounted(async () => {
       const stop = watch(() => authStore.loading, (v) => { if (!v) { stop(); resolve() } })
     })
   }
-  if (!authStore.isLoggedIn || !authStore.isCreator) {
-    router.replace({ path: '/creator/apply' })
+  if (!authStore.isLoggedIn) {
+    router.replace({ name: 'workshop' })
+    return
+  }
+
+  // 拉取工坊列表（如未加载）
+  if (!workshopStore.workshops.length) {
+    await workshopStore.fetchWorkshops()
+  }
+
+  // 查找当前工坊
+  const w = workshopStore.workshops.find(w => w.id === workshopId)
+  if (!w) {
+    loadError.value = '工坊不存在或尚未审批通过'
+    return
+  }
+  // 仅作者或管理员可编辑
+  if (w.author_id !== authStore.user?.id && !authStore.isCreator) {
+    router.replace({ name: 'workshop' })
+    return
+  }
+  // 内置工坊（author_id = null）不可编辑
+  if (w.author_id === null) {
+    loadError.value = '内置工坊不可编辑'
+    return
+  }
+
+  form.value = {
+    name: w.name,
+    description: w.description || '',
+    worldbook: w.worldbook || '',
   }
 })
 
@@ -40,7 +70,7 @@ async function handleSubmit() {
   saving.value = true
   workshopStore.error = null
 
-  const result = await workshopStore.createWorkshop({
+  const result = await workshopStore.updateWorkshop(workshopId, {
     name: form.value.name.trim(),
     description: form.value.description.trim(),
     worldbook: form.value.worldbook.trim(),
@@ -48,13 +78,12 @@ async function handleSubmit() {
 
   saving.value = false
   if (result) {
-    // 创作者创建的工坊需等待审批，展示成功提示而不是跳转
-    submitted.value = true
+    router.push({ path: '/workshop', query: { workshop: result.slug } })
   }
 }
 
 function goBack() {
-  router.push({ name: 'workshop' })
+  router.back()
 }
 </script>
 
@@ -64,31 +93,17 @@ function goBack() {
     <div class="flex items-center gap-3 mb-6">
       <button class="btn-secondary text-sm" @click="goBack">← 返回</button>
       <h1 class="text-xl font-bold" style="font-family:'Fredoka',sans-serif; color:#EA580C;">
-        申请创建工坊
+        编辑工坊
       </h1>
     </div>
 
-    <!-- 提交成功：等待审批 -->
+    <!-- 加载错误 -->
     <div
-      v-if="submitted"
-      class="flex flex-col items-center gap-5 py-12 text-center"
+      v-if="loadError"
+      class="px-4 py-3 rounded-xl text-sm font-semibold text-center"
+      style="background:#FEF2F2; color:#EF4444; border:1.5px solid #FECACA;"
     >
-      <div
-        class="w-16 h-16 rounded-full flex items-center justify-center"
-        style="background:#DCFCE7; border:2.5px solid #22C55E;"
-      >
-        <svg class="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="#16A34A" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="20 6 9 17 4 12"/>
-        </svg>
-      </div>
-      <div>
-        <p class="text-lg font-bold mb-1" style="font-family:'Fredoka',sans-serif; color:#14532D;">申请已提交！</p>
-        <p class="text-sm" style="color:#78716C; font-family:'Nunito',sans-serif; line-height:1.7;">
-          您的工坊申请已提交，正在等待管理员审批。<br>
-          审批通过后工坊将出现在工坊列表中。
-        </p>
-      </div>
-      <button class="btn-primary" @click="goBack">返回工坊列表</button>
+      {{ loadError }}
     </div>
 
     <form v-else @submit.prevent="handleSubmit" class="flex flex-col gap-5">
@@ -119,12 +134,12 @@ function goBack() {
             v-model="form.name"
             type="text"
             class="input"
-            placeholder="例如：原神、崩铁…"
+            placeholder="工坊名称"
             maxlength="50"
             required
           />
           <p class="text-xs" style="color:#A8A29E; font-family:'Nunito',sans-serif;">
-            最多 50 字，创建后名称可编辑但 slug 不变
+            最多 50 字；Slug 在创建时已固定，不会随名称改变
           </p>
         </div>
 
@@ -154,24 +169,12 @@ function goBack() {
         </div>
       </div>
 
-      <!-- 须知 -->
-      <div
-        class="rounded-xl px-4 py-3 text-xs"
-        style="background:#FFF7ED; border:1.5px dashed #FDBA74; color:#78350F; font-family:'Nunito',sans-serif; line-height:1.7;"
-      >
-        <p class="font-bold mb-1">工坊须知</p>
-        <p>・工坊申请需要管理员审批，审批通过后才会对外显示</p>
-        <p>・任何登录用户都可以在工坊内创建模组</p>
-        <p>・内置工坊（蒸汽朋克、电锯人）不可编辑或删除</p>
-        <p>・创建的工坊 slug 由名称自动生成，不可更改</p>
-      </div>
-
       <!-- 提交按钮 -->
       <div class="flex gap-3 justify-end">
         <button type="button" class="btn-secondary" @click="goBack">取消</button>
         <button type="submit" class="btn-primary" :disabled="saving">
-          <span v-if="saving">提交中…</span>
-          <span v-else>提交申请</span>
+          <span v-if="saving">保存中…</span>
+          <span v-else>保存修改</span>
         </button>
       </div>
 

@@ -54,6 +54,8 @@ function switchTab(tab) {
   if (tab === 'applications') loadApplications()
   else if (tab === 'users') loadUsers()
   else if (tab === 'packs') loadPacks()
+  else if (tab === 'workshops') loadWorkshopApps()
+  else if (tab === 'workshop-manage') loadAllWorkshops()
 }
 
 // ── 申请管理 ──────────────────────────────────────────────────────────
@@ -170,6 +172,59 @@ async function deletePack(packId, title) {
   await loadPacks(packPage.value)
 }
 
+// ── 工坊申请管理 ──────────────────────────────────────────────────────
+const workshopApps = ref([])
+const workshopAppFilter = ref('pending')
+const workshopAppsLoading = ref(false)
+
+async function loadWorkshopApps() {
+  workshopAppsLoading.value = true
+  try {
+    const res = await fetch(`/admin/workshops?status=${workshopAppFilter.value}`, { credentials: 'include' })
+    const data = await res.json()
+    workshopApps.value = data.data || []
+  } catch {
+    workshopApps.value = []
+  } finally {
+    workshopAppsLoading.value = false
+  }
+}
+
+async function approveWorkshop(id) {
+  if (!confirm('确认通过该工坊申请？')) return
+  await fetch(`/admin/workshops/${id}/approve`, { method: 'POST', credentials: 'include' })
+  await loadWorkshopApps()
+}
+
+async function rejectWorkshop(id) {
+  if (!confirm('确认拒绝该工坊申请？')) return
+  await fetch(`/admin/workshops/${id}/reject`, { method: 'POST', credentials: 'include' })
+  await loadWorkshopApps()
+}
+
+// ── 工坊管理 ──────────────────────────────────────────────────────────
+const allWorkshops = ref([])
+const allWorkshopsLoading = ref(false)
+
+async function loadAllWorkshops() {
+  allWorkshopsLoading.value = true
+  try {
+    const res = await fetch('/admin/workshops?status=all', { credentials: 'include' })
+    const data = await res.json()
+    allWorkshops.value = data.data || []
+  } catch {
+    allWorkshops.value = []
+  } finally {
+    allWorkshopsLoading.value = false
+  }
+}
+
+async function deleteWorkshop(id, name) {
+  if (!confirm(`确认删除工坊「${name}」？其下所有模组将失去所属工坊关联。`)) return
+  await fetch(`/admin/workshops/${id}`, { method: 'DELETE', credentials: 'include' })
+  await loadAllWorkshops()
+}
+
 // ── 用户详情弹窗 ──────────────────────────────────────────────────────
 const userDetail = ref(null)        // null = 关闭；对象 = 展示详情
 const userDetailLoading = ref(false)
@@ -258,7 +313,7 @@ onMounted(async () => {
 
       <!-- Tab 导航 -->
       <div class="flex gap-2 mb-6 flex-wrap">
-        <button v-for="t in [{k:'applications',l:'申请管理'},{k:'users',l:'用户管理'},{k:'packs',l:'模组管理'}]" :key="t.k"
+        <button v-for="t in [{k:'applications',l:'申请管理'},{k:'workshops',l:'工坊申请'},{k:'workshop-manage',l:'工坊管理'},{k:'users',l:'用户管理'},{k:'packs',l:'模组管理'}]" :key="t.k"
           class="px-5 py-2 rounded-full font-bold text-sm transition-all duration-150"
           :style="activeTab===t.k ? 'background:#F97316; color:white; box-shadow:3px 3px 0 #C2410C; transform:rotate(-0.5deg);' : 'background:#FFF7ED; color:#78350F; border:2px solid #FDBA74;'"
           @click="switchTab(t.k)">
@@ -305,6 +360,34 @@ onMounted(async () => {
               <button class="btn-primary text-xs px-3 py-1.5" @click="openReview(app,'approve')">通过</button>
               <button class="btn-danger text-xs px-3 py-1.5" @click="openReview(app,'reject')">拒绝</button>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── 工坊管理 ──────────────────────────────────────────────── -->
+      <div v-if="activeTab==='workshop-manage'">
+        <div v-if="allWorkshopsLoading" class="flex justify-center py-12">
+          <div class="w-8 h-8 rounded-full animate-spin" style="border:3px solid #FED7AA; border-top-color:#F97316;"></div>
+        </div>
+        <div v-else-if="!allWorkshops.length" class="text-center py-12 text-sm" style="color:#A8A29E; font-family:'Nunito',sans-serif;">暂无工坊</div>
+        <div v-else class="flex flex-col gap-3">
+          <div v-for="w in allWorkshops" :key="w.id" class="card p-4 flex flex-col sm:flex-row sm:items-start gap-4">
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 flex-wrap mb-1">
+                <span class="font-bold text-base" style="font-family:'Fredoka',sans-serif; color:#431407;">{{ w.name }}</span>
+                <span class="text-xs px-2 py-0.5 rounded-full border font-bold"
+                  :style="w.status==='active' ? 'background:#DCFCE7;color:#14532D;border-color:#22C55E;'
+                        : w.status==='rejected' ? 'background:#FEE2E2;color:#991B1B;border-color:#FCA5A5;'
+                        : 'background:#FEF9C3;color:#854D0E;border-color:#FDE047;'">
+                  {{ w.status==='active' ? '已上线' : w.status==='rejected' ? '已拒绝' : '待审核' }}
+                </span>
+              </div>
+              <p class="text-xs mb-1" style="color:#A8A29E; font-family:'Nunito',sans-serif;">
+                slug: {{ w.slug }} · 申请人：{{ w.author ? w.author.username : '内置' }} · {{ fmtDate(w.created_at) }}
+              </p>
+              <p v-if="w.description" class="text-sm rounded-xl px-3 py-2 mt-1" style="background:#FFFBF0; border:1.5px solid #FED7AA; color:#78350F; font-family:'Nunito',sans-serif; word-break:break-word;">{{ w.description }}</p>
+            </div>
+            <button v-if="w.author_id !== null" class="btn-danger text-xs px-3 py-1.5 flex-shrink-0" @click="deleteWorkshop(w.id, w.name)">删除</button>
           </div>
         </div>
       </div>
@@ -374,6 +457,48 @@ onMounted(async () => {
           <button class="btn-secondary text-sm" :disabled="packPage>=packPagination.totalPages" @click="loadPacks(packPage+1)">下一页</button>
         </div>
       </div>
+
+      <!-- ─── 工坊申请 ──────────────────────────────────────────────── -->
+      <div v-if="activeTab==='workshops'">
+        <div class="flex gap-2 mb-4 flex-wrap">
+          <button v-for="f in [{k:'pending',l:'待审核'},{k:'active',l:'已通过'},{k:'rejected',l:'已拒绝'},{k:'all',l:'全部'}]" :key="f.k"
+            class="px-4 py-1.5 rounded-full text-xs font-bold transition-all"
+            :style="workshopAppFilter===f.k ? 'background:#431407; color:white;' : 'background:#FFF7ED; color:#78350F; border:1.5px solid #FDBA74;'"
+            @click="workshopAppFilter=f.k; loadWorkshopApps()">
+            {{ f.l }}
+          </button>
+        </div>
+        <div v-if="workshopAppsLoading" class="flex justify-center py-12">
+          <div class="w-8 h-8 rounded-full animate-spin" style="border:3px solid #FED7AA; border-top-color:#F97316;"></div>
+        </div>
+        <div v-else-if="!workshopApps.length" class="text-center py-12 text-sm" style="color:#A8A29E; font-family:'Nunito',sans-serif;">暂无记录</div>
+        <div v-else class="flex flex-col gap-3">
+          <div v-for="w in workshopApps" :key="w.id" class="card p-4 flex flex-col sm:flex-row sm:items-start gap-4">
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 flex-wrap mb-1">
+                <span class="font-bold text-base" style="font-family:'Fredoka',sans-serif; color:#431407;">{{ w.name }}</span>
+                <span class="text-xs px-2 py-0.5 rounded-full border font-bold"
+                  :style="w.status==='active' ? 'background:#DCFCE7;color:#14532D;border-color:#22C55E;'
+                        : w.status==='rejected' ? 'background:#FEE2E2;color:#991B1B;border-color:#FCA5A5;'
+                        : 'background:#FEF9C3;color:#854D0E;border-color:#FDE047;'">
+                  {{ w.status==='active' ? '已通过' : w.status==='rejected' ? '已拒绝' : '待审核' }}
+                </span>
+              </div>
+              <p class="text-xs mb-1" style="color:#A8A29E; font-family:'Nunito',sans-serif;">
+                申请人：{{ w.author ? w.author.username : '内置' }} · 申请于 {{ fmtDate(w.created_at) }}
+              </p>
+              <p v-if="w.description" class="text-sm rounded-xl px-3 py-2 mt-1" style="background:#FFFBF0; border:1.5px solid #FED7AA; color:#78350F; font-family:'Nunito',sans-serif; word-break:break-word;">{{ w.description }}</p>
+              <p v-if="w.worldbook" class="text-xs mt-1" style="color:#78716C; font-family:'Nunito',sans-serif;">
+                <span class="font-bold" style="color:#431407;">默认世界书：</span>{{ w.worldbook }}
+              </p>
+            </div>
+            <div v-if="w.status==='pending'" class="flex gap-2 flex-shrink-0">
+              <button class="btn-primary text-xs px-3 py-1.5" @click="approveWorkshop(w.id)">通过</button>
+              <button class="btn-danger text-xs px-3 py-1.5" @click="rejectWorkshop(w.id)">拒绝</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- ═══ 用户详情弹窗 ══════════════════════════════════════════════════ -->
@@ -409,9 +534,13 @@ onMounted(async () => {
 
               <!-- 统计栏 -->
               <div class="flex gap-6 px-6 text-center">
+                <div v-if="userDetail.user.role==='creator' || userDetail.user.role==='admin'">
+                  <p class="text-2xl font-bold" style="font-family:'Fredoka',sans-serif; color:#F97316;">{{ userDetail.workshops.length }}</p>
+                  <p class="text-xs" style="color:#A8A29E; font-family:'Nunito',sans-serif;">工坊数</p>
+                </div>
                 <div>
                   <p class="text-2xl font-bold" style="font-family:'Fredoka',sans-serif; color:#F97316;">{{ userDetail.packs.length }}</p>
-                  <p class="text-xs" style="color:#A8A29E; font-family:'Nunito',sans-serif;">工坊数</p>
+                  <p class="text-xs" style="color:#A8A29E; font-family:'Nunito',sans-serif;">模组数</p>
                 </div>
                 <div>
                   <p class="text-2xl font-bold" style="font-family:'Fredoka',sans-serif; color:#F97316;">{{ userDetail.entry_count }}</p>
@@ -419,25 +548,53 @@ onMounted(async () => {
                 </div>
               </div>
 
-              <!-- 工坊列表 -->
-              <div class="px-6 pb-6 overflow-y-auto flex-1">
-                <p class="text-sm font-bold mb-3" style="font-family:'Fredoka',sans-serif; color:#78350F;">工坊列表</p>
-                <div v-if="!userDetail.packs.length" class="text-sm text-center py-6" style="color:#A8A29E; font-family:'Nunito',sans-serif;">暂无工坊</div>
-                <div v-else class="flex flex-col gap-2">
-                  <div v-for="pack in userDetail.packs" :key="pack.id"
-                    class="flex items-center gap-3 px-3 py-2.5 rounded-xl"
-                    style="background:#FFF7ED; border:1.5px solid #FED7AA;"
-                  >
-                    <div class="flex-1 min-w-0">
-                      <p class="font-bold text-sm truncate" style="font-family:'Fredoka',sans-serif; color:#431407;">{{ pack.title }}</p>
-                      <p class="text-xs mt-0.5" style="color:#A8A29E; font-family:'Nunito',sans-serif;">
-                        {{ pack.entry_count }} 条目 · {{ pack.like_count }} 赞 · {{ pack.sub_count }} 订阅 · {{ fmtDate(pack.created_at) }}
-                      </p>
+              <!-- 内容区 -->
+              <div class="px-6 pb-6 overflow-y-auto flex-1 flex flex-col gap-5">
+                <!-- 工坊列表：仅创作者/管理员显示 -->
+                <div v-if="userDetail.user.role==='creator' || userDetail.user.role==='admin'">
+                  <p class="text-sm font-bold mb-3" style="font-family:'Fredoka',sans-serif; color:#78350F;">工坊列表</p>
+                  <div v-if="!userDetail.workshops.length" class="text-sm text-center py-4" style="color:#A8A29E; font-family:'Nunito',sans-serif;">暂无工坊</div>
+                  <div v-else class="flex flex-col gap-2">
+                    <div v-for="w in userDetail.workshops" :key="w.id"
+                      class="flex items-center gap-3 px-3 py-2.5 rounded-xl"
+                      style="background:#FFF7ED; border:1.5px solid #FED7AA;"
+                    >
+                      <div class="flex-1 min-w-0">
+                        <p class="font-bold text-sm truncate" style="font-family:'Fredoka',sans-serif; color:#431407;">{{ w.name }}</p>
+                        <p class="text-xs mt-0.5" style="color:#A8A29E; font-family:'Nunito',sans-serif;">
+                          {{ w.slug }} · {{ fmtDate(w.created_at) }}
+                        </p>
+                      </div>
+                      <span class="text-xs px-2 py-0.5 rounded-full border font-bold flex-shrink-0"
+                        :style="w.status==='active' ? 'background:#DCFCE7;color:#14532D;border-color:#22C55E;'
+                              : w.status==='rejected' ? 'background:#FEE2E2;color:#991B1B;border-color:#FCA5A5;'
+                              : 'background:#FEF9C3;color:#854D0E;border-color:#FDE047;'">
+                        {{ w.status==='active' ? '已上线' : w.status==='rejected' ? '已拒绝' : '待审核' }}
+                      </span>
                     </div>
-                    <span class="text-xs px-2 py-0.5 rounded-full border font-bold flex-shrink-0"
-                      style="background:#FFF7ED;color:#78350F;border-color:#FDBA74;">
-                      {{ pack.workshop_name || pack.section || '未知工坊' }}
-                    </span>
+                  </div>
+                </div>
+
+                <!-- 模组列表 -->
+                <div>
+                  <p class="text-sm font-bold mb-3" style="font-family:'Fredoka',sans-serif; color:#78350F;">模组列表</p>
+                  <div v-if="!userDetail.packs.length" class="text-sm text-center py-4" style="color:#A8A29E; font-family:'Nunito',sans-serif;">暂无模组</div>
+                  <div v-else class="flex flex-col gap-2">
+                    <div v-for="pack in userDetail.packs" :key="pack.id"
+                      class="flex items-center gap-3 px-3 py-2.5 rounded-xl"
+                      style="background:#FFF7ED; border:1.5px solid #FED7AA;"
+                    >
+                      <div class="flex-1 min-w-0">
+                        <p class="font-bold text-sm truncate" style="font-family:'Fredoka',sans-serif; color:#431407;">{{ pack.title }}</p>
+                        <p class="text-xs mt-0.5" style="color:#A8A29E; font-family:'Nunito',sans-serif;">
+                          {{ pack.entry_count }} 条目 · {{ pack.like_count }} 赞 · {{ pack.sub_count }} 订阅 · {{ fmtDate(pack.created_at) }}
+                        </p>
+                      </div>
+                      <span class="text-xs px-2 py-0.5 rounded-full border font-bold flex-shrink-0"
+                        style="background:#FFF7ED;color:#78350F;border-color:#FDBA74;">
+                        {{ pack.workshop_name || pack.section || '未知工坊' }}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>

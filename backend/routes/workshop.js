@@ -20,6 +20,7 @@ function formatWorkshop(row) {
     description: row.description || '',
     worldbook: row.worldbook || '',
     author_id: row.author_id || null,
+    status: row.status || 'active',
     created_at: row.created_at,
   };
 }
@@ -94,7 +95,7 @@ const VALID_ROLES = ['system', 'user', 'assistant'];
 router.get('/workshops', (req, res) => {
   const db = getDb();
   try {
-    const rows = db.prepare(`SELECT * FROM workshops ORDER BY id ASC`).all();
+    const rows = db.prepare(`SELECT * FROM workshops WHERE status = 'active' ORDER BY id ASC`).all();
     res.json({ data: rows.map(formatWorkshop) });
   } catch (err) {
     console.error('[Workshop] 获取工坊列表失败:', err);
@@ -119,18 +120,22 @@ router.post('/workshops', requireAuth, (req, res) => {
   const slug = `${base}_${Date.now()}`;
 
   try {
+    // 管理员直接激活，创作者需等待审批
+    const status = (userRow.role === 'admin') ? 'active' : 'pending';
     const info = db.prepare(`
-      INSERT INTO workshops (name, slug, description, worldbook, author_id)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO workshops (name, slug, description, worldbook, author_id, status)
+      VALUES (?, ?, ?, ?, ?, ?)
     `).run(
       String(name).trim(),
       slug,
       String(description || '').trim(),
       String(worldbook || '').trim(),
-      req.user.id
+      req.user.id,
+      status
     );
     const created = db.prepare(`SELECT * FROM workshops WHERE id = ?`).get(info.lastInsertRowid);
-    res.status(201).json({ data: formatWorkshop(created), message: '工坊创建成功' });
+    const msg = status === 'pending' ? '工坊申请已提交，等待管理员审批' : '工坊创建成功';
+    res.status(201).json({ data: formatWorkshop(created), message: msg });
   } catch (err) {
     console.error('[Workshop] 创建工坊失败:', err);
     res.status(500).json({ error: '服务器内部错误' });
