@@ -11,6 +11,9 @@ const { getDb } = require('./db/init');
 const authRouter = require('./routes/auth');
 const storiesRouter = require('./routes/stories');
 const tagsRouter = require('./routes/tags');
+const workshopRouter = require('./routes/workshop');
+const creatorRouter = require('./routes/creator');
+const adminRouter = require('./routes/admin');
 
 const app = express();
 const isProd = process.env.NODE_ENV === 'production';
@@ -113,6 +116,9 @@ app.use(passport.session());
 app.use('/auth', authRouter);
 app.use('/api/stories', storiesRouter);
 app.use('/api/tags', tagsRouter);
+app.use('/api/workshop', workshopRouter);
+app.use('/api/creator', creatorRouter);
+app.use('/admin', adminRouter);
 
 // ─── 健康检查 ─────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
@@ -123,7 +129,7 @@ app.get('/api/health', (req, res) => {
 if (isProd) {
   const frontendDist = path.join(__dirname, '../frontend/dist');
   app.use(express.static(frontendDist));
-  app.get('*', (req, res) => {
+  app.get('/*splat', (req, res) => {
     res.sendFile(path.join(frontendDist, 'index.html'));
   });
 }

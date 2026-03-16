@@ -23,6 +23,7 @@
       url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='400' height='400' filter='url(%23noise)' opacity='0.035'/%3E%3C/svg%3E");
     color: #431407;
     min-height: 100vh;
+    overflow-x: hidden;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -138,6 +139,35 @@
     box-shadow: 4px 4px 0px 0px #7F1D1D, 0 0 0 2.5px #7F1D1D;
   }
 
+  /* ===== 导航分区按钮：白色背景，hover 变黄 ===== */
+  .btn-nav-section {
+    @apply inline-flex items-center justify-center gap-2
+           font-bold text-sm
+           px-5 py-2.5 cursor-pointer
+           transition-all duration-200
+           focus:outline-none;
+    font-family: 'Fredoka', sans-serif;
+    font-size: 0.95rem;
+    color: #78350F;
+    background: white;
+    border-radius: 999px;
+    box-shadow: 3px 3px 0px 0px #FDBA74, 0 0 0 2px #FDBA74;
+    transform: rotate(0.3deg);
+  }
+  .btn-nav-section:hover {
+    background: #FEF08A;
+    color: #78350F;
+    transform: rotate(-0.3deg) translateY(-1px);
+    box-shadow: 4px 4px 0px 0px #CA8A04, 0 0 0 2px #CA8A04;
+    border-color: #CA8A04;
+  }
+  .btn-nav-section.active {
+    background: #FEF08A;
+    color: #78350F;
+    box-shadow: 2px 2px 0px 0px #CA8A04, 0 0 0 2px #CA8A04;
+    transform: rotate(0deg) translateY(1px);
+  }
+
   /* ===== 卡片：手绘便签 — 彩色主题轮换 ===== */
   .card {
     @apply bg-white flex flex-col transition-all duration-200;
@@ -158,6 +188,7 @@
     transform: rotate(0.3deg);
   }
   .card:nth-child(3n+1):hover {
+    transform: rotate(-0.3deg) translateY(-3px) scale(1.01);
     box-shadow: 6px 6px 0px 0px #0891B2, 0 0 0 2px #0891B2;
     border-color: #0891B2;
   }
@@ -168,6 +199,7 @@
     transform: rotate(-0.5deg);
   }
   .card:nth-child(3n+2):hover {
+    transform: rotate(0.4deg) translateY(-3px) scale(1.01);
     box-shadow: 6px 6px 0px 0px #BE185D, 0 0 0 2px #BE185D;
     border-color: #BE185D;
   }
@@ -176,6 +208,11 @@
     box-shadow: 4px 4px 0px 0px #F97316, 0 0 0 2px #F97316;
     border-color: #F97316;
     transform: rotate(-0.4deg);
+  }
+  .card:nth-child(3n+3):hover {
+    transform: rotate(0.3deg) translateY(-3px) scale(1.01);
+    box-shadow: 6px 6px 0px 0px #EA580C, 0 0 0 2px #EA580C;
+    border-color: #EA580C;
   }
 
   /* ===== 标签徽章 ===== */

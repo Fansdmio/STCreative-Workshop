@@ -47,21 +47,6 @@
       <main class="flex-1 flex flex-col">
         <RouterView />
       </main>
-      <!-- 手绘风格 Footer -->
-      <footer class="py-8 text-center relative" style="border-top: 3px dashed #FDBA74;">
-        <div class="page-container">
-          <!-- 手绘波浪分隔 -->
-          <svg class="mx-auto mb-3 w-48 h-6 opacity-50" viewBox="0 0 192 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M4 12 Q24 4 48 12 Q72 20 96 12 Q120 4 144 12 Q168 20 188 12" stroke="#F97316" stroke-width="2.5" fill="none" stroke-linecap="round"/>
-          </svg>
-          <p style="font-family: 'Fredoka', sans-serif; color: #EA580C; font-size: 0.95rem; font-weight: 500;">
-            StoryShare &mdash; 用文字记录感动
-          </p>
-          <p style="font-family: 'Nunito', sans-serif; color: #FB923C; font-size: 0.8rem; margin-top: 4px;">
-            每一个故事，都值得被记住
-          </p>
-        </div>
-      </footer>
     </div>
   </div>
 </template>

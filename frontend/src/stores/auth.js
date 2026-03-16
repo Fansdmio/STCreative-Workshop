@@ -7,6 +7,8 @@ export const useAuthStore = defineStore('auth', () => {
   const loading = ref(false)
 
   const isLoggedIn = computed(() => !!user.value)
+  // 是否具有创作者权限（creator 或 admin 均可发布模组）
+  const isCreator = computed(() => user.value?.role === 'creator' || user.value?.role === 'admin')
 
   async function fetchMe() {
     loading.value = true
@@ -38,5 +40,5 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  return { user, initialized, loading, isLoggedIn, fetchMe, loginWithDiscord, logout }
+  return { user, initialized, loading, isLoggedIn, isCreator, fetchMe, loginWithDiscord, logout }
 })
