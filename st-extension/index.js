@@ -234,14 +234,15 @@ async function sendHttpCommand(type, payload) {
 
 function startW2EPolling() {
   if (_w2ePolling) {
-    console.log('[StoryShare Workshop] w2e 轮询已在运行');
+    console.log('[StoryShare Workshop] w2e 轮询已在运行，跳过重复启动');
     return;
   }
   _w2ePolling = true;
   _w2eAbortController = new AbortController();
-  console.log('[StoryShare Workshop] 启动 w2e 轮询...');
 
   const baseUrl = getApiBaseUrl();
+  console.log('[StoryShare Workshop] 启动 w2e 轮询... baseUrl =', baseUrl);
+
   if (!baseUrl) {
     console.error('[StoryShare Workshop] 无法启动 w2e 轮询：API 地址未配置');
     _w2ePolling = false;
@@ -249,29 +250,38 @@ function startW2EPolling() {
   }
 
   const poll = async () => {
+    console.log('[StoryShare Workshop] w2e poll 循环开始');
     while (_w2ePolling) {
+      console.log('[StoryShare Workshop] w2e 发起长轮询请求:', `${baseUrl}/api/st-bridge/w2e-poll`);
       try {
         const res = await fetch(`${baseUrl}/api/st-bridge/w2e-poll`, {
           signal: _w2eAbortController.signal,
         });
+        console.log('[StoryShare Workshop] w2e 长轮询响应状态:', res.status);
         if (!res.ok) {
+          console.warn('[StoryShare Workshop] w2e 轮询响应异常，5 秒后重试，状态码:', res.status);
           await new Promise(r => setTimeout(r, 5000));
           continue;
         }
         const data = await res.json();
+        console.log('[StoryShare Workshop] w2e 轮询数据:', JSON.stringify(data).slice(0, 200));
         if (data.success && data.command) {
           console.log('[StoryShare Workshop] w2e 收到命令:', data.command.type, data.command.id);
           await handleW2ECommand(data.command, baseUrl);
+        } else {
+          // command 为 null：超时，立即重新发起
+          console.log('[StoryShare Workshop] w2e 轮询超时（无命令），立即重新发起');
         }
       } catch (err) {
         if (err.name === 'AbortError') {
-          console.log('[StoryShare Workshop] w2e 轮询已停止');
+          console.log('[StoryShare Workshop] w2e 轮询已停止（AbortError）');
           break;
         }
-        console.error('[StoryShare Workshop] w2e 轮询出错:', err);
+        console.error('[StoryShare Workshop] w2e 轮询出错:', err.name, err.message);
         await new Promise(r => setTimeout(r, 5000));
       }
     }
+    console.log('[StoryShare Workshop] w2e poll 循环结束，_w2ePolling =', _w2ePolling);
   };
 
   poll();

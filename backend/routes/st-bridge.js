@@ -21,14 +21,20 @@ let w2eCounter = 0;
 
 // ── 工具：长轮询辅助函数 ──────────────────────────────────────────────────
 function longPoll(req, res, queue, label) {
+  const origin = req.headers.origin || req.headers.host || '(无 origin)';
+  console.log(`[ST Bridge] ${label} 长轮询收到请求，来源: ${origin}，队列长度: ${queue.length}`);
+
   if (queue.length > 0) {
     const command = queue.shift();
     console.log(`[ST Bridge] ${label} 立即返回命令:`, command.type, command.id);
     return res.json({ success: true, command });
   }
 
+  console.log(`[ST Bridge] ${label} 队列为空，等待 25 秒...`);
+
   const timeout = setTimeout(() => {
     clearInterval(checkInterval);
+    console.log(`[ST Bridge] ${label} 长轮询超时（25s），返回 null`);
     res.json({ success: true, command: null });
   }, 25000);
 
@@ -43,6 +49,7 @@ function longPoll(req, res, queue, label) {
   }, 500);
 
   req.on('close', () => {
+    console.log(`[ST Bridge] ${label} 长轮询连接提前关闭（req close）`);
     clearTimeout(timeout);
     clearInterval(checkInterval);
   });
