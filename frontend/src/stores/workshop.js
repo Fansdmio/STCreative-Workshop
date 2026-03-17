@@ -77,8 +77,6 @@ export const useWorkshopStore = defineStore('workshop', () => {
   let _listenerAdded = false
   let _requestCounter = 0
   let _stExtensionWindow = null // ST 扩展窗口引用（用于跨域场景）
-  let _httpPolling = false // HTTP 轮询是否正在运行
-  let _httpPollingAbort = null // AbortController for HTTP polling
 
   // ── 工坊列表状态 ─────────────────────────────────────────────
   const workshops = ref([])
@@ -527,7 +525,7 @@ export const useWorkshopStore = defineStore('workshop', () => {
     })
   }
 
-  // 发送消息给 ST 扩展（Promise 包装，5s 超时）
+  // 发送消息给 ST 扩展（Promise 包装，20s 超时）
   function _sendToOpener(type, payload, requestKey) {
     return new Promise((resolve, reject) => {
       // 优先使用保存的扩展窗口引用，其次使用 window.opener
@@ -540,75 +538,16 @@ export const useWorkshopStore = defineStore('workshop', () => {
 
       const timer = setTimeout(() => {
         delete _pending[requestKey]
-        reject(new Error('请求超时（5秒）'))
-      }, 5000)
+        stConnected.value = false
+        reject(new Error('请求超时（20秒），连接已重置'))
+      }, 20000)
 
       _pending[requestKey] = { resolve, reject, timer }
       targetWindow.postMessage({ type, payload }, '*')
     })
   }
 
-  // 通过 w2e HTTP 通道发送命令给 ST 扩展，并等待响应（最多 30 秒）
-  async function _sendW2ECommand(type, payload) {
-    console.log('[Workshop] 发送 w2e 命令:', type)
-
-    // 0. 活性检查：确保扩展在最近 60 秒内有发过 w2e-poll 请求
-    //    若没有，说明扩展已断开（重启/重载），立即置 stConnected=false
-    try {
-      const statusRes = await fetch('/api/st-bridge/ping', { credentials: 'include' })
-      if (statusRes.ok) {
-        const status = await statusRes.json()
-        const age = status.lastW2EPollAt ? Date.now() - status.lastW2EPollAt : Infinity
-        console.log('[Workshop] w2e 扩展最近轮询时间:', status.lastW2EPollAt, '距今(ms):', age)
-        if (age > 60000) {
-          // 扩展超过 60 秒未轮询，判定为离线
-          stConnected.value = false
-          console.warn('[Workshop] 扩展轮询超时，连接已重置')
-          throw new Error('ST 扩展已断开，请重新打开工坊弹窗以重连')
-        }
-      }
-    } catch (err) {
-      // 如果 err 是我们主动抛的（断开），直接向上冒泡
-      if (err.message.includes('ST 扩展已断开')) throw err
-      // 否则是网络错误，继续尝试（不阻断）
-      console.warn('[Workshop] w2e 活性检查失败（网络错误），继续发送命令:', err.message)
-    }
-
-    // 1. 发送命令入队
-    const cmdRes = await fetch('/api/st-bridge/w2e-command', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ type, payload }),
-    })
-    if (!cmdRes.ok) throw new Error(`w2e 命令发送失败: ${cmdRes.status}`)
-    const cmdData = await cmdRes.json()
-    if (!cmdData.success) throw new Error('w2e 命令发送失败')
-    const commandId = cmdData.commandId
-    console.log('[Workshop] w2e 命令已入队:', commandId)
-
-    // 2. 轮询等待扩展返回结果（最多 30 秒）
-    const deadline = Date.now() + 30000
-    while (Date.now() < deadline) {
-      await new Promise(r => setTimeout(r, 1000))
-      const resRes = await fetch(`/api/st-bridge/w2e-response/${commandId}`, {
-        credentials: 'include',
-      })
-      if (!resRes.ok) continue
-      const resData = await resRes.json()
-      if (resData.success && resData.response) {
-        console.log('[Workshop] w2e 收到响应:', resData.response)
-        return resData.response
-      }
-    }
-
-    // 3. 超时：重置连接状态，下次操作会触发重新握手
-    stConnected.value = false
-    console.warn('[Workshop] w2e 等待超时，已重置 stConnected')
-    throw new Error('等待扩展响应超时（30秒）。连接已重置，请重新打开工坊弹窗')
-  }
-
-  // 初始化 ST 扩展模式（发送 ping，握手）
+  // 初始化 ST 扩展模式（postMessage 握手）
   async function initStExtensionMode() {
     console.log('[Workshop] 初始化 ST 扩展模式...')
     console.log('[Workshop] window.opener:', window.opener)
@@ -623,7 +562,7 @@ export const useWorkshopStore = defineStore('workshop', () => {
     console.log('[Workshop] 设置消息监听器...')
     _setupMessageListener()
     
-    // 如果有 window.opener，尝试发送 ping（备用方案）
+    // 如果有 window.opener，尝试发送 ping
     if (window.opener && window.opener !== window) {
       try {
         console.log('[Workshop] 检测到 window.opener，发送 ping...')
@@ -632,248 +571,12 @@ export const useWorkshopStore = defineStore('workshop', () => {
         console.error('[Workshop] postMessage 失败:', err)
       }
     }
-
-    // 启动 HTTP 轮询（主要方案）
-    console.log('[Workshop] 启动 HTTP 轮询...')
-    _startHttpPolling()
   }
 
-  // 启动 HTTP 长轮询，从后端获取扩展发送的命令
-  function _startHttpPolling() {
-    if (_httpPolling) {
-      console.log('[Workshop] HTTP 轮询已在运行')
-      return
-    }
-
-    _httpPolling = true
-    _httpPollingAbort = new AbortController()
-    console.log('[Workshop] HTTP 轮询已启动')
-
-    const poll = async () => {
-      while (_httpPolling) {
-        try {
-          const response = await fetch('/api/st-bridge/poll', {
-            signal: _httpPollingAbort.signal,
-            credentials: 'include',
-          })
-
-          if (!response.ok) {
-            console.error('[Workshop] 轮询失败:', response.status)
-            await new Promise(resolve => setTimeout(resolve, 5000))
-            continue
-          }
-
-          const data = await response.json()
-          
-          if (data.success && data.command) {
-            console.log('[Workshop] 收到 HTTP 命令:', data.command)
-            await _handleHttpCommand(data.command)
-          }
-          
-          // 继续下一次轮询
-        } catch (err) {
-          if (err.name === 'AbortError') {
-            console.log('[Workshop] HTTP 轮询已停止')
-            break
-          }
-          console.error('[Workshop] 轮询出错:', err)
-          await new Promise(resolve => setTimeout(resolve, 5000))
-        }
-      }
-    }
-
-    poll()
-  }
-
-  // 停止 HTTP 轮询
-  function _stopHttpPolling() {
-    if (_httpPollingAbort) {
-      _httpPollingAbort.abort()
-    }
-    _httpPolling = false
-    console.log('[Workshop] HTTP 轮询已停止')
-  }
-
-  // 处理从 HTTP 桥接收到的命令
-  async function _handleHttpCommand(command) {
-    const { id, type, payload } = command
-
-    console.log('[Workshop] 处理命令:', type, id)
-
-    let result = { success: false, message: '未知命令' }
-
+  // 通过 ST 扩展扫描（postMessage）
+  async function _scanViaST(wbName) {
     try {
-      switch (type) {
-        case 'ping':
-          // 握手
-          stConnected.value = true
-          console.log('[Workshop] 已连接到 ST 扩展（HTTP）')
-          result = { success: true, connected: true }
-          break
-
-        case 'scan':
-          result = await _executeScan(payload)
-          break
-
-        case 'subscribe':
-          result = await _executeSubscribe(payload)
-          break
-
-        case 'unsubscribe':
-          result = await _executeUnsubscribe(payload)
-          break
-
-        default:
-          console.warn('[Workshop] 未知命令类型:', type)
-      }
-    } catch (err) {
-      console.error('[Workshop] 执行命令失败:', err)
-      result = { success: false, message: err.message }
-    }
-
-    // 提交结果到后端
-    try {
-      await fetch('/api/st-bridge/response', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ commandId: id, result }),
-      })
-      console.log('[Workshop] 已提交命令结果:', id)
-    } catch (err) {
-      console.error('[Workshop] 提交结果失败:', err)
-    }
-  }
-
-  // 执行扫描
-  async function _executeScan(payload) {
-    const { worldbookName } = payload
-    if (!worldbookName) {
-      return { success: false, packIds: [], entryCountMap: {} }
-    }
-
-    try {
-      // 直接嵌入模式
-      if (isSillyTavernEnv()) {
-        const TH = window.TavernHelper
-        if (!TH) return { success: false, message: 'TavernHelper 不可用', packIds: [], entryCountMap: {} }
-
-        const names = TH.getWorldbookNames()
-        if (!names.includes(worldbookName)) {
-          return { success: true, packIds: [], entryCountMap: {} }
-        }
-
-        const entries = await TH.getWorldbook(worldbookName)
-        const packMap = {}
-        for (const e of entries) {
-          if (e.extra && e.extra.source === 'storyshare_workshop' && e.extra.pack_id != null) {
-            const packId = e.extra.pack_id
-            packMap[packId] = (packMap[packId] || 0) + 1
-          }
-        }
-
-        const packIds = Object.keys(packMap).map(Number)
-        const map = {}
-        for (const packId of packIds) {
-          map[packId] = true
-        }
-        subscribedPacksInST.value = map
-
-        return { success: true, packIds, entryCountMap: packMap }
-      }
-
-      return { success: false, message: '非 SillyTavern 环境' }
-    } catch (err) {
-      console.error('[Workshop] 扫描失败:', err)
-      return { success: false, packIds: [], entryCountMap: {} }
-    }
-  }
-
-  // 执行订阅
-  async function _executeSubscribe(payload) {
-    const { packId, packTitle, worldbookName, entries } = payload
-    if (!packId || !worldbookName || !entries) {
-      return { success: false, message: '缺少必要参数' }
-    }
-
-    if (!isSillyTavernEnv()) {
-      return { success: false, message: '非 SillyTavern 环境' }
-    }
-
-    try {
-      const TH = window.TavernHelper
-      if (!TH) return { success: false, message: 'TavernHelper 不可用' }
-
-      // 确保世界书存在（不存在则创建）
-      const names = TH.getWorldbookNames()
-      if (!names.includes(worldbookName)) {
-        await TH.createWorldbook(worldbookName)
-      }
-
-      // 移除旧条目（幂等）
-      await TH.deleteWorldbookEntries(
-        worldbookName,
-        e => e.extra && e.extra.source === 'storyshare_workshop' && e.extra.pack_id === packId,
-        { render: 'debounced' }
-      )
-
-      // 插入新条目
-      await TH.createWorldbookEntries(worldbookName, entries, { render: 'immediate' })
-
-      subscribedPacksInST.value = { ...subscribedPacksInST.value, [packId]: true }
-      stNotification.value = { type: 'success', message: `已订阅「${packTitle}」` }
-      return { success: true, message: `已将「${packTitle}」的 ${entries.length} 条条目插入世界书` }
-    } catch (err) {
-      console.error('[Workshop] 订阅失败:', err)
-      stNotification.value = { type: 'error', message: '订阅失败' }
-      return { success: false, message: '插入世界书失败：' + err.message }
-    }
-  }
-
-  // 执行取消订阅
-  async function _executeUnsubscribe(payload) {
-    const { packId, worldbookName } = payload
-    if (packId == null || !worldbookName) {
-      return { success: false, message: '缺少必要参数', removedCount: 0 }
-    }
-
-    if (!isSillyTavernEnv()) {
-      return { success: false, message: '非 SillyTavern 环境', removedCount: 0 }
-    }
-
-    try {
-      const TH = window.TavernHelper
-      if (!TH) return { success: false, message: 'TavernHelper 不可用', removedCount: 0 }
-
-      const names = TH.getWorldbookNames()
-      if (!names.includes(worldbookName)) {
-        return { success: true, message: '世界书不存在', removedCount: 0 }
-      }
-
-      const { deleted_entries } = await TH.deleteWorldbookEntries(
-        worldbookName,
-        e => e.extra && e.extra.source === 'storyshare_workshop' && e.extra.pack_id === packId,
-        { render: 'immediate' }
-      )
-      const removedCount = deleted_entries.length
-
-      const updated = { ...subscribedPacksInST.value }
-      delete updated[packId]
-      subscribedPacksInST.value = updated
-
-      stNotification.value = { type: 'success', message: '已取消订阅' }
-      return { success: true, message: `已从世界书移除 ${removedCount} 条条目`, removedCount }
-    } catch (err) {
-      console.error('[Workshop] 取消订阅失败:', err)
-      stNotification.value = { type: 'error', message: '取消订阅失败' }
-      return { success: false, message: '移除世界书条目失败：' + err.message, removedCount: 0 }
-    }
-  }
-
-  // 通过 ST 扩展扫描
-  async function _scanViaST(worldbookName) {
-    try {
-      const result = await _sendW2ECommand('scan', { worldbookName })
+      const result = await _sendToOpener('workshop_scan', { worldbookName: wbName }, 'scan')
       if (result && result.success) {
         const map = {}
         for (const packId of result.packIds || []) {
@@ -887,7 +590,7 @@ export const useWorkshopStore = defineStore('workshop', () => {
     }
   }
 
-  // 通过 ST 扩展订阅（w2e HTTP 通道）
+  // 通过 ST 扩展订阅（postMessage）
   async function _subscribeViaST(pack) {
     try {
       // 获取完整条目（如果当前 pack 没有 entries）
@@ -902,12 +605,12 @@ export const useWorkshopStore = defineStore('workshop', () => {
       // 转换为 TavernHelper WorldbookEntry 格式（不含 uid）
       const stEntries = entries.map(entry => toStEntry(entry, pack.id))
 
-      const result = await _sendW2ECommand('subscribe', {
+      const result = await _sendToOpener('workshop_subscribe', {
         packId: pack.id,
         packTitle: pack.title,
         worldbookName: worldbookName.value,
         entries: stEntries,
-      })
+      }, `subscribe_${++_requestCounter}`)
 
       if (result && result.success) {
         subscribedPacksInST.value = { ...subscribedPacksInST.value, [pack.id]: true }
@@ -923,13 +626,13 @@ export const useWorkshopStore = defineStore('workshop', () => {
     }
   }
 
-  // 通过 ST 扩展取消订阅（w2e HTTP 通道）
+  // 通过 ST 扩展取消订阅（postMessage）
   async function _unsubscribeViaST(packId) {
     try {
-      const result = await _sendW2ECommand('unsubscribe', {
+      const result = await _sendToOpener('workshop_unsubscribe', {
         packId,
         worldbookName: worldbookName.value,
-      })
+      }, `unsubscribe_${++_requestCounter}`)
 
       if (result && result.success) {
         const updated = { ...subscribedPacksInST.value }

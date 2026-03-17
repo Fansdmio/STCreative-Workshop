@@ -14,7 +14,6 @@ const tagsRouter = require('./routes/tags');
 const workshopRouter = require('./routes/workshop');
 const creatorRouter = require('./routes/creator');
 const adminRouter = require('./routes/admin');
-const stBridgeRouter = require('./routes/st-bridge');
 
 const app = express();
 const isProd = process.env.NODE_ENV === 'production';
@@ -132,7 +131,6 @@ app.use('/api/tags', tagsRouter);
 app.use('/api/workshop', workshopRouter);
 app.use('/api/creator', creatorRouter);
 app.use('/admin', adminRouter);
-app.use('/api/st-bridge', stBridgeRouter);
 
 // ─── 健康检查 ─────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
