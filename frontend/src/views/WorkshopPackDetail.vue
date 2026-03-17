@@ -22,10 +22,10 @@ const isStEnv = computed(() => workshopStore.isSillyTavernEnv())
 
 // 返回工坊时携带分区参数
 function goBackToWorkshop() {
-  const slug = pack.value?.workshop?.slug || pack.value?.section
+  const slug = pack.value?.workshop?.slug || pack.value?.section || null
   router.push({
     name: 'workshop',
-    query: slug && slug !== 'steampunk' ? { workshop: slug } : {},
+    query: slug ? { workshop: slug } : {},
   })
 }
 
