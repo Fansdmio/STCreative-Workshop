@@ -7,9 +7,14 @@ function isSillyTavernEnv() {
   return typeof window !== 'undefined' && typeof window.SillyTavern !== 'undefined'
 }
 
-// 检测是否从 ST 扩展弹窗打开（window.opener 存在且非自身）
+// 检测是否从 ST 扩展打开（弹窗模式或 iframe 模式）
 function isFromStExtension() {
-  return typeof window !== 'undefined' && window.opener && window.opener !== window
+  if (typeof window === 'undefined') return false
+  // 弹窗模式：window.opener 存在（同源时可用）
+  if (window.opener && window.opener !== window) return true
+  // iframe 模式：嵌入在 SillyTavern 页面的 iframe 中
+  if (window.parent && window.parent !== window) return true
+  return false
 }
 
 // 将 workshop entry 转换为 TavernHelper WorldbookEntry 格式（不含 uid，由 TH 自动分配）
@@ -474,8 +479,9 @@ export const useWorkshopStore = defineStore('workshop', () => {
         return
       }
 
-      // 安全检查：必须来自 opener 或已保存的扩展窗口
-      if (event.source !== window.opener && event.source !== _stExtensionWindow) {
+      // 安全检查：必须来自 opener、已保存的扩展窗口或 parent（iframe 模式）
+      const isFromParent = window.parent && window.parent !== window && event.source === window.parent
+      if (event.source !== window.opener && event.source !== _stExtensionWindow && !isFromParent) {
         console.log('[Workshop] 忽略未知来源的消息')
         return
       }
@@ -528,8 +534,8 @@ export const useWorkshopStore = defineStore('workshop', () => {
   // 发送消息给 ST 扩展（Promise 包装，20s 超时）
   function _sendToOpener(type, payload, requestKey) {
     return new Promise((resolve, reject) => {
-      // 优先使用保存的扩展窗口引用，其次使用 window.opener
-      const targetWindow = _stExtensionWindow || window.opener
+      // 优先使用保存的扩展窗口引用，其次 window.opener，最后 window.parent（iframe 模式）
+      const targetWindow = _stExtensionWindow || window.opener || (window.parent !== window ? window.parent : null)
       
       if (!targetWindow || targetWindow === window) {
         reject(new Error('未从 ST 扩展打开'))
@@ -551,6 +557,7 @@ export const useWorkshopStore = defineStore('workshop', () => {
   async function initStExtensionMode() {
     console.log('[Workshop] 初始化 ST 扩展模式...')
     console.log('[Workshop] window.opener:', window.opener)
+    console.log('[Workshop] window.parent !== window:', window.parent !== window)
     console.log('[Workshop] _stExtensionWindow:', _stExtensionWindow)
     
     if (stConnected.value) {
@@ -558,17 +565,27 @@ export const useWorkshopStore = defineStore('workshop', () => {
       return // 已连接，幂等
     }
 
-    // 始终设置监听器，等待扩展发送 opener 引用（备用方案）
+    // 始终设置监听器，等待扩展发送 opener 引用
     console.log('[Workshop] 设置消息监听器...')
     _setupMessageListener()
     
-    // 如果有 window.opener，尝试发送 ping
+    // 弹窗模式：如果有 window.opener，尝试发送 ping
     if (window.opener && window.opener !== window) {
       try {
         console.log('[Workshop] 检测到 window.opener，发送 ping...')
         window.opener.postMessage({ type: 'workshop_ping', payload: {} }, '*')
       } catch (err) {
-        console.error('[Workshop] postMessage 失败:', err)
+        console.error('[Workshop] postMessage 到 opener 失败:', err)
+      }
+    }
+
+    // iframe 模式：如果在 iframe 中，尝试向父窗口发送 ping
+    if (window.parent && window.parent !== window) {
+      try {
+        console.log('[Workshop] 检测到 iframe 模式，发送 ping 到 parent...')
+        window.parent.postMessage({ type: 'workshop_ping', payload: {} }, '*')
+      } catch (err) {
+        console.error('[Workshop] postMessage 到 parent 失败:', err)
       }
     }
   }

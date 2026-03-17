@@ -1,8 +1,8 @@
 /**
  * ST创意工坊 SillyTavern 扩展
  *
- * 提供弹窗式创意工坊浏览器，支持直接订阅/退订模组并插入世界书
- * 通过 postMessage 与工坊页面双向通信，无需 HTTP 桥接
+ * 在 SillyTavern 内嵌 iframe 加载创意工坊，通过 postMessage 双向通信
+ * 使用 iframe 而非 popup 以避免跨域 COOP（Cross-Origin-Opener-Policy）限制
  */
 
 import { getContext } from '../../../extensions.js';
@@ -10,7 +10,10 @@ import { getContext } from '../../../extensions.js';
 // ← 部署后将此处替换为你的工坊完整 URL（包含 /StoryShare/ 路径）
 const WORKSHOP_URL = 'http://localhost:5173/';
 
-let workshopWindow = null;
+let workshopOverlay = null;
+let workshopIframe = null;
+let workshopWindow = null; // iframe.contentWindow
+let handshakeInterval = null;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 扩展初始化
@@ -44,46 +47,74 @@ jQuery(async () => {
   // 绑定打开按钮
   $('#st_open_workshop').on('click', openWorkshop);
 
-  // 监听 window message 事件
+  // 监听 window message 事件（接收来自 iframe 的消息）
   window.addEventListener('message', handleWorkshopMessage, false);
 
   console.log('[ST创意工坊] 扩展已加载');
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 打开工坊弹窗
+// 打开工坊（iframe 覆盖层）
 // ═══════════════════════════════════════════════════════════════════════════
 
 function openWorkshop() {
-  // 如果已有窗口且未关闭，聚焦它
-  if (workshopWindow && !workshopWindow.closed) {
-    workshopWindow.focus();
+  // 如果覆盖层已存在，直接显示
+  if (workshopOverlay) {
+    workshopOverlay.style.display = 'flex';
     return;
   }
 
-  // 打开新弹窗（960×700 居中）
-  const w = 960;
-  const h = 700;
-  const left = Math.max(0, (window.screen.width - w) / 2);
-  const top = Math.max(0, (window.screen.height - h) / 2);
+  // 创建覆盖层
+  workshopOverlay = document.createElement('div');
+  workshopOverlay.id = 'st-workshop-overlay';
+  workshopOverlay.innerHTML = `
+    <div id="st-workshop-modal">
+      <div id="st-workshop-header">
+        <span class="st-workshop-title">ST创意工坊</span>
+        <button id="st-workshop-close" title="关闭">&times;</button>
+      </div>
+      <iframe id="st-workshop-iframe" src="${WORKSHOP_URL}" allow="clipboard-write"></iframe>
+    </div>
+  `;
+  document.body.appendChild(workshopOverlay);
 
-  workshopWindow = window.open(
-    WORKSHOP_URL,
-    'STWorkshop',
-    `width=${w},height=${h},left=${left},top=${top},resizable=yes,scrollbars=yes,status=no,toolbar=no,menubar=no`
-  );
+  workshopIframe = document.getElementById('st-workshop-iframe');
 
-  if (!workshopWindow) {
-    toastr.error('无法打开工坊窗口，请检查浏览器弹窗拦截设置', 'ST创意工坊');
-    return;
+  // 点击关闭按钮隐藏
+  document.getElementById('st-workshop-close').addEventListener('click', closeWorkshop);
+
+  // 点击遮罩层（背景）隐藏
+  workshopOverlay.addEventListener('click', (e) => {
+    if (e.target === workshopOverlay) closeWorkshop();
+  });
+
+  // iframe 加载完成后开始握手
+  workshopIframe.addEventListener('load', () => {
+    workshopWindow = workshopIframe.contentWindow;
+    console.log('[ST创意工坊] iframe 已加载，开始握手...');
+    startHandshake();
+  });
+}
+
+function closeWorkshop() {
+  if (workshopOverlay) {
+    workshopOverlay.style.display = 'none';
   }
+}
 
-  // 持续发送 opener 引用，直到工坊页面就绪并响应
-  // （工坊页面加载完成后会接收此消息并回发 workshop_ping）
-  let pingAttempts = 0;
-  const pingInterval = setInterval(() => {
-    if (!workshopWindow || workshopWindow.closed) {
-      clearInterval(pingInterval);
+// ═══════════════════════════════════════════════════════════════════════════
+// postMessage 握手（持续发送 opener 引用直到工坊回应）
+// ═══════════════════════════════════════════════════════════════════════════
+
+function startHandshake() {
+  // 清除之前的握手定时器
+  if (handshakeInterval) clearInterval(handshakeInterval);
+
+  let attempts = 0;
+  handshakeInterval = setInterval(() => {
+    if (!workshopWindow) {
+      clearInterval(handshakeInterval);
+      handshakeInterval = null;
       return;
     }
     try {
@@ -91,11 +122,16 @@ function openWorkshop() {
         type: 'st_extension_opener',
         source: 'st_workshop_extension',
       }, '*');
-      pingAttempts++;
-      if (pingAttempts >= 40) clearInterval(pingInterval); // 最多尝试 20 秒
+      attempts++;
+      if (attempts >= 40) { // 最多 20 秒
+        console.warn('[ST创意工坊] 握手超时（20 秒），停止重试');
+        clearInterval(handshakeInterval);
+        handshakeInterval = null;
+      }
     } catch (err) {
       console.error('[ST创意工坊] 发送 opener 引用失败:', err);
-      clearInterval(pingInterval);
+      clearInterval(handshakeInterval);
+      handshakeInterval = null;
     }
   }, 500);
 }
@@ -105,7 +141,7 @@ function openWorkshop() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function handleWorkshopMessage(event) {
-  // 安全检查：必须是我们打开的窗口
+  // 安全检查：必须来自我们的 iframe
   if (!workshopWindow || event.source !== workshopWindow) return;
 
   const { type, payload } = event.data || {};
@@ -117,7 +153,13 @@ async function handleWorkshopMessage(event) {
     case 'workshop_ping':
       // 工坊已就绪，回应 pong 完成握手
       console.log('[ST创意工坊] 握手完成，发送 pong');
+      // 停止重复发送 opener
+      if (handshakeInterval) {
+        clearInterval(handshakeInterval);
+        handshakeInterval = null;
+      }
       workshopWindow.postMessage({ type: 'workshop_pong', connected: true }, '*');
+      toastr.success('工坊已连接', 'ST创意工坊');
       break;
     case 'workshop_scan':
       await handleScan(payload);
@@ -276,11 +318,11 @@ async function handleUnsubscribe(payload) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 辅助函数：发送结果回弹窗
+// 辅助函数：发送结果回 iframe
 // ═══════════════════════════════════════════════════════════════════════════
 
 function sendResult(type, payload) {
-  if (workshopWindow && !workshopWindow.closed) {
+  if (workshopWindow) {
     workshopWindow.postMessage({ type, ...payload }, '*');
   }
 }
