@@ -532,6 +532,40 @@ export const useWorkshopStore = defineStore('workshop', () => {
     })
   }
 
+  // 通过 w2e HTTP 通道发送命令给 ST 扩展，并等待响应（最多 30 秒）
+  async function _sendW2ECommand(type, payload) {
+    console.log('[Workshop] 发送 w2e 命令:', type)
+
+    // 1. 发送命令入队
+    const cmdRes = await fetch('/api/st-bridge/w2e-command', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ type, payload }),
+    })
+    if (!cmdRes.ok) throw new Error(`w2e 命令发送失败: ${cmdRes.status}`)
+    const cmdData = await cmdRes.json()
+    if (!cmdData.success) throw new Error('w2e 命令发送失败')
+    const commandId = cmdData.commandId
+    console.log('[Workshop] w2e 命令已入队:', commandId)
+
+    // 2. 轮询等待扩展返回结果（最多 30 秒）
+    const deadline = Date.now() + 30000
+    while (Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, 1000))
+      const resRes = await fetch(`/api/st-bridge/w2e-response/${commandId}`, {
+        credentials: 'include',
+      })
+      if (!resRes.ok) continue
+      const resData = await resRes.json()
+      if (resData.success && resData.response) {
+        console.log('[Workshop] w2e 收到响应:', resData.response)
+        return resData.response
+      }
+    }
+    throw new Error('等待扩展响应超时（30秒）')
+  }
+
   // 初始化 ST 扩展模式（发送 ping，握手）
   async function initStExtensionMode() {
     console.log('[Workshop] 初始化 ST 扩展模式...')
@@ -807,8 +841,8 @@ export const useWorkshopStore = defineStore('workshop', () => {
   // 通过 ST 扩展扫描
   async function _scanViaST(worldbookName) {
     try {
-      const result = await _sendToOpener('workshop_scan', { worldbookName }, 'scan')
-      if (result.success) {
+      const result = await _sendW2ECommand('scan', { worldbookName })
+      if (result && result.success) {
         const map = {}
         for (const packId of result.packIds || []) {
           map[packId] = true
@@ -821,9 +855,8 @@ export const useWorkshopStore = defineStore('workshop', () => {
     }
   }
 
-  // 通过 ST 扩展订阅
+  // 通过 ST 扩展订阅（w2e HTTP 通道）
   async function _subscribeViaST(pack) {
-    const requestKey = `subscribe_${++_requestCounter}`
     try {
       // 获取完整条目（如果当前 pack 没有 entries）
       let entries = pack.entries
@@ -837,24 +870,20 @@ export const useWorkshopStore = defineStore('workshop', () => {
       // 转换为 ST 格式
       const stEntries = entries.map((entry, idx) => toStEntry(entry, idx, pack.id))
 
-      const result = await _sendToOpener(
-        'workshop_subscribe',
-        {
-          packId: pack.id,
-          packTitle: pack.title,
-          worldbookName: worldbookName.value,
-          entries: stEntries,
-        },
-        requestKey
-      )
+      const result = await _sendW2ECommand('subscribe', {
+        packId: pack.id,
+        packTitle: pack.title,
+        worldbookName: worldbookName.value,
+        entries: stEntries,
+      })
 
-      if (result.success) {
+      if (result && result.success) {
         subscribedPacksInST.value = { ...subscribedPacksInST.value, [pack.id]: true }
         stNotification.value = { type: 'success', message: result.message || '订阅成功' }
       } else {
-        stNotification.value = { type: 'error', message: result.message || '订阅失败' }
+        stNotification.value = { type: 'error', message: (result && result.message) || '订阅失败' }
       }
-      return result.success
+      return result && result.success
     } catch (err) {
       console.error('[Workshop] ST 扩展订阅失败:', err)
       stNotification.value = { type: 'error', message: '订阅失败：' + err.message }
@@ -862,25 +891,23 @@ export const useWorkshopStore = defineStore('workshop', () => {
     }
   }
 
-  // 通过 ST 扩展取消订阅
+  // 通过 ST 扩展取消订阅（w2e HTTP 通道）
   async function _unsubscribeViaST(packId) {
-    const requestKey = `unsubscribe_${++_requestCounter}`
     try {
-      const result = await _sendToOpener(
-        'workshop_unsubscribe',
-        { packId, worldbookName: worldbookName.value },
-        requestKey
-      )
+      const result = await _sendW2ECommand('unsubscribe', {
+        packId,
+        worldbookName: worldbookName.value,
+      })
 
-      if (result.success) {
+      if (result && result.success) {
         const updated = { ...subscribedPacksInST.value }
         delete updated[packId]
         subscribedPacksInST.value = updated
         stNotification.value = { type: 'success', message: result.message || '取消订阅成功' }
       } else {
-        stNotification.value = { type: 'error', message: result.message || '取消订阅失败' }
+        stNotification.value = { type: 'error', message: (result && result.message) || '取消订阅失败' }
       }
-      return result.success
+      return result && result.success
     } catch (err) {
       console.error('[Workshop] ST 扩展取消订阅失败:', err)
       stNotification.value = { type: 'error', message: '取消订阅失败：' + err.message }

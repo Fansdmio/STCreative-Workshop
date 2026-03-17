@@ -12,6 +12,10 @@ const DEFAULT_WORKSHOP_URL = 'YOUR_DOMAIN_HERE';
 
 let workshopWindow = null;
 
+// w2e 轮询状态
+let _w2ePolling = false;
+let _w2eAbortController = null;
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 扩展初始化
 // ═══════════════════════════════════════════════════════════════════════════
@@ -119,6 +123,8 @@ function openWorkshop() {
       .then(() => {
         console.log('[StoryShare Workshop] HTTP 连接已建立');
         toastr.success('工坊已连接', 'StoryShare 工坊');
+        // ping 成功后启动 w2e 轮询，接收来自工坊的命令
+        startW2EPolling();
       })
       .catch(err => {
         console.error('[StoryShare Workshop] HTTP 连接失败:', err);
@@ -220,6 +226,97 @@ async function sendHttpCommand(type, payload) {
   }
 
   throw new Error('等待响应超时（30秒）');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// w2e 反向通道：轮询工坊发来的命令并执行
+// ═══════════════════════════════════════════════════════════════════════════
+
+function startW2EPolling() {
+  if (_w2ePolling) {
+    console.log('[StoryShare Workshop] w2e 轮询已在运行');
+    return;
+  }
+  _w2ePolling = true;
+  _w2eAbortController = new AbortController();
+  console.log('[StoryShare Workshop] 启动 w2e 轮询...');
+
+  const baseUrl = getApiBaseUrl();
+  if (!baseUrl) {
+    console.error('[StoryShare Workshop] 无法启动 w2e 轮询：API 地址未配置');
+    _w2ePolling = false;
+    return;
+  }
+
+  const poll = async () => {
+    while (_w2ePolling) {
+      try {
+        const res = await fetch(`${baseUrl}/api/st-bridge/w2e-poll`, {
+          signal: _w2eAbortController.signal,
+        });
+        if (!res.ok) {
+          await new Promise(r => setTimeout(r, 5000));
+          continue;
+        }
+        const data = await res.json();
+        if (data.success && data.command) {
+          console.log('[StoryShare Workshop] w2e 收到命令:', data.command.type, data.command.id);
+          await handleW2ECommand(data.command, baseUrl);
+        }
+      } catch (err) {
+        if (err.name === 'AbortError') {
+          console.log('[StoryShare Workshop] w2e 轮询已停止');
+          break;
+        }
+        console.error('[StoryShare Workshop] w2e 轮询出错:', err);
+        await new Promise(r => setTimeout(r, 5000));
+      }
+    }
+  };
+
+  poll();
+}
+
+function stopW2EPolling() {
+  if (_w2eAbortController) _w2eAbortController.abort();
+  _w2ePolling = false;
+}
+
+async function handleW2ECommand(command, baseUrl) {
+  const { id, type, payload } = command;
+  let result;
+
+  try {
+    switch (type) {
+      case 'scan':
+        result = await handleScan(payload);
+        break;
+      case 'subscribe':
+        result = await handleSubscribe(payload);
+        break;
+      case 'unsubscribe':
+        result = await handleUnsubscribe(payload);
+        break;
+      default:
+        console.warn('[StoryShare Workshop] w2e 未知命令:', type);
+        result = { success: false, message: '未知命令类型: ' + type };
+    }
+  } catch (err) {
+    console.error('[StoryShare Workshop] w2e 命令执行失败:', err);
+    result = { success: false, message: err.message };
+  }
+
+  // 把结果提交回后端
+  try {
+    await fetch(`${baseUrl}/api/st-bridge/w2e-response`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: id, result }),
+    });
+    console.log('[StoryShare Workshop] w2e 响应已提交:', id);
+  } catch (err) {
+    console.error('[StoryShare Workshop] w2e 响应提交失败:', err);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
