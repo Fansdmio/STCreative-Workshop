@@ -25,9 +25,21 @@ if (isProd) {
 }
 
 // ─── CORS ────────────────────────────────────────────────────────
+const ALLOWED_ORIGIN = process.env.FRONTEND_URL || 'http://localhost:5173';
+
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    origin: function (origin, callback) {
+      // 无 origin（curl / 服务端请求）直接放行
+      if (!origin) return callback(null, true);
+      // 精确匹配配置的前端地址
+      if (origin === ALLOWED_ORIGIN) return callback(null, true);
+      // 开发环境：放行所有 localhost/127.0.0.1 来源（兼容 SillyTavern 各端口）
+      if (!isProd && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+        return callback(null, true);
+      }
+      callback(new Error('Not allowed by CORS: ' + origin));
+    },
     credentials: true,
   })
 );
