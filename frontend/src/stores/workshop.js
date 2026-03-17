@@ -1047,5 +1047,8 @@ export const useWorkshopStore = defineStore('workshop', () => {
     loadWorldbookForSection,
     initStExtensionMode,
     stopHttpPolling: _stopHttpPolling, // 暴露停止轮询方法
+    // 工具函数
+    isSillyTavernEnv,
+    isFromStExtension,
   }
 })
