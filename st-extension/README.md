@@ -26,10 +26,10 @@
 4. 输入以下 GitHub URL：
 
 ```
-https://github.com/YOUR_USERNAME/SteamPunkStore_demo
+https://github.com/AlyceSingle/STCreative-Workshop
 ```
 
-5. 在 **Branch** 中填写 `main`（或你的默认分支）
+5. 在 **Branch** 中填写 `main`
 6. 在 **Subfolder** 中填写 `st-extension`
 7. 点击 **Install**
 
@@ -165,7 +165,7 @@ https://your-domain.com/StoryShare/
 
 本扩展由 **StoryShare Team** 开发，基于 `SteamPunkStore_demo` 项目。
 
-- 主项目：`https://github.com/your-repo/SteamPunkStore_demo`
+- 主项目：`https://github.com/AlyceSingle/STCreative-Workshop`
 - 扩展版本：`1.0.0`
 - 兼容 SillyTavern：`1.12.0+`
 
