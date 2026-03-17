@@ -1030,7 +1030,7 @@ export const useWorkshopStore = defineStore('workshop', () => {
     stNotification,
     // 方法
     fetchPacks,
-    fetchPackDetail,
+    fetchPack,
     fetchWorkshops,
     toggleLike,
     toggleSubscribe,
