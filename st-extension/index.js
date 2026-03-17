@@ -1,14 +1,15 @@
 /**
- * StoryShare 创意工坊 SillyTavern 扩展
- * 
+ * ST创意工坊 SillyTavern 扩展
+ *
  * 提供弹窗式创意工坊浏览器，支持直接订阅/退订模组并插入世界书
  */
 
-import { extension_settings, getContext } from '../../../extensions.js';
-import { eventSource, event_types } from '../../../../script.js';
+import { getContext } from '../../../extensions.js';
 
-const EXTENSION_NAME = 'storyshare-workshop';
-const DEFAULT_WORKSHOP_URL = 'YOUR_DOMAIN_HERE';
+// ← 部署后将此处替换为你的工坊完整 URL（包含 /StoryShare/ 路径）
+const WORKSHOP_URL = 'https://YOUR_DOMAIN_HERE/StoryShare/';
+
+const EXTENSION_NAME = 'st-workshop';
 
 let workshopWindow = null;
 
@@ -21,37 +22,16 @@ let _w2eAbortController = null;
 // ═══════════════════════════════════════════════════════════════════════════
 
 jQuery(async () => {
-  // 初始化设置
-  if (!extension_settings[EXTENSION_NAME]) {
-    extension_settings[EXTENSION_NAME] = {
-      workshopUrl: DEFAULT_WORKSHOP_URL,
-    };
-  }
-
-  // 注入设置 UI
+  // 注入设置 UI（仅一个按钮，无需用户配置）
   const settingsHtml = `
-    <div class="storyshare-workshop-settings">
+    <div class="st-workshop-settings">
       <div class="inline-drawer">
         <div class="inline-drawer-toggle inline-drawer-header">
-          <b>StoryShare 创意工坊</b>
+          <b>ST创意工坊</b>
           <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
         </div>
         <div class="inline-drawer-content">
-          <label for="storyshare_workshop_url">
-            <span>工坊网址</span>
-          </label>
-          <input
-            id="storyshare_workshop_url"
-            class="text_pole"
-            type="text"
-            placeholder="https://your-domain.com/StoryShare/"
-            value="${extension_settings[EXTENSION_NAME].workshopUrl}"
-          />
-          <small class="notes">
-            部署后填写你的工坊完整 URL（包含 <code>/StoryShare/</code> 路径）
-          </small>
-          <hr />
-          <button id="storyshare_open_workshop" class="menu_button">
+          <button id="st_open_workshop" class="menu_button">
             <i class="fa-solid fa-store"></i>
             <span>打开创意工坊</span>
           </button>
@@ -66,21 +46,13 @@ jQuery(async () => {
     : $('#extensions_settings');
   container.append(settingsHtml);
 
-  // 绑定事件
-  $('#storyshare_workshop_url').on('input', async function () {
-    extension_settings[EXTENSION_NAME].workshopUrl = String($(this).val()).trim();
-    const ctx = getContext?.() ?? SillyTavern;
-    if (ctx && typeof ctx.saveSettingsDebounced === 'function') {
-      await ctx.saveSettingsDebounced();
-    }
-  });
-
-  $('#storyshare_open_workshop').on('click', openWorkshop);
+  // 绑定打开按钮
+  $('#st_open_workshop').on('click', openWorkshop);
 
   // 监听 window message 事件
   window.addEventListener('message', handleWorkshopMessage, false);
 
-  console.log('[StoryShare Workshop] 扩展已加载');
+  console.log('[ST创意工坊] 扩展已加载');
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -88,12 +60,6 @@ jQuery(async () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function openWorkshop() {
-  const url = extension_settings[EXTENSION_NAME].workshopUrl;
-  if (!url || url === DEFAULT_WORKSHOP_URL) {
-    toastr.warning('请先在扩展设置中配置工坊网址', 'StoryShare 工坊');
-    return;
-  }
-
   // 如果已有窗口且未关闭，聚焦它
   if (workshopWindow && !workshopWindow.closed) {
     workshopWindow.focus();
@@ -107,51 +73,46 @@ function openWorkshop() {
   const top = Math.max(0, (window.screen.height - h) / 2);
 
   workshopWindow = window.open(
-    url,
-    'StoryShareWorkshop',
+    WORKSHOP_URL,
+    'STWorkshop',
     `width=${w},height=${h},left=${left},top=${top},resizable=yes,scrollbars=yes,status=no,toolbar=no,menubar=no`
   );
 
   if (!workshopWindow) {
-    toastr.error('无法打开工坊窗口，请检查浏览器弹窗拦截设置', 'StoryShare 工坊');
+    toastr.error('无法打开工坊窗口，请检查浏览器弹窗拦截设置', 'ST创意工坊');
     return;
   }
 
-  // 发送 HTTP ping 命令，通知工坊建立连接
+  // 等待页面加载后发送 HTTP ping，通知工坊建立连接
   setTimeout(() => {
     sendHttpCommand('ping', {})
       .then(() => {
-        console.log('[StoryShare Workshop] HTTP 连接已建立');
-        toastr.success('工坊已连接', 'StoryShare 工坊');
+        console.log('[ST创意工坊] HTTP 连接已建立');
+        toastr.success('工坊已连接', 'ST创意工坊');
         // ping 成功后启动 w2e 轮询，接收来自工坊的命令
         startW2EPolling();
       })
       .catch(err => {
-        console.error('[StoryShare Workshop] HTTP 连接失败:', err);
+        console.error('[ST创意工坊] HTTP 连接失败:', err);
       });
-  }, 2000); // 等待 2 秒让工坊页面加载并启动轮询
+  }, 2000);
 
-  // 保留 postMessage 发送（备用方案，如果同源则可能成功）
+  // postMessage 备用握手（同源时可能成功）
   let pingAttempts = 0;
   const pingInterval = setInterval(() => {
     if (workshopWindow.closed) {
       clearInterval(pingInterval);
       return;
     }
-    
     try {
-      workshopWindow.postMessage({ 
-        type: 'st_extension_opener', 
-        source: 'storyshare_extension' 
+      workshopWindow.postMessage({
+        type: 'st_extension_opener',
+        source: 'st_workshop_extension',
       }, '*');
       pingAttempts++;
-      
-      // 最多尝试 20 次（10 秒）
-      if (pingAttempts >= 20) {
-        clearInterval(pingInterval);
-      }
+      if (pingAttempts >= 20) clearInterval(pingInterval);
     } catch (err) {
-      console.error('[StoryShare Workshop] 发送 opener 引用失败:', err);
+      console.error('[ST创意工坊] 发送 opener 引用失败:', err);
       clearInterval(pingInterval);
     }
   }, 500);
@@ -161,16 +122,13 @@ function openWorkshop() {
 // HTTP 桥接通信
 // ═══════════════════════════════════════════════════════════════════════════
 
-// 从工坊 URL 中提取 API 基础 URL
+// 从硬编码的工坊 URL 中提取 API 基础地址
 function getApiBaseUrl() {
-  const workshopUrl = extension_settings[EXTENSION_NAME].workshopUrl;
-  if (!workshopUrl) return null;
-  
   try {
-    const url = new URL(workshopUrl);
+    const url = new URL(WORKSHOP_URL);
     return `${url.protocol}//${url.host}`;
   } catch (err) {
-    console.error('[StoryShare Workshop] 无法解析工坊 URL:', err);
+    console.error('[ST创意工坊] 无法解析工坊 URL:', err);
     return null;
   }
 }
@@ -178,11 +136,9 @@ function getApiBaseUrl() {
 // 发送 HTTP 命令到后端桥接
 async function sendHttpCommand(type, payload) {
   const baseUrl = getApiBaseUrl();
-  if (!baseUrl) {
-    throw new Error('无法获取 API 基础 URL');
-  }
+  if (!baseUrl) throw new Error('无法获取 API 基础 URL');
 
-  console.log('[StoryShare Workshop] 发送 HTTP 命令:', type);
+  console.log('[ST创意工坊] 发送 HTTP 命令:', type);
 
   // 1. 发送命令
   const cmdResponse = await fetch(`${baseUrl}/api/st-bridge/command`, {
@@ -191,38 +147,32 @@ async function sendHttpCommand(type, payload) {
     body: JSON.stringify({ type, payload }),
   });
 
-  if (!cmdResponse.ok) {
-    throw new Error(`发送命令失败: ${cmdResponse.status}`);
-  }
+  if (!cmdResponse.ok) throw new Error(`发送命令失败: ${cmdResponse.status}`);
 
   const cmdData = await cmdResponse.json();
-  if (!cmdData.success) {
-    throw new Error('发送命令失败');
-  }
+  if (!cmdData.success) throw new Error('发送命令失败');
 
   const commandId = cmdData.commandId;
-  console.log('[StoryShare Workshop] 命令已发送:', commandId);
+  console.log('[ST创意工坊] 命令已发送:', commandId);
 
   // 2. 轮询获取响应（最多 30 秒）
   const startTime = Date.now();
   const timeout = 30000;
 
   while (Date.now() - startTime < timeout) {
-    await new Promise(resolve => setTimeout(resolve, 1000)); // 每秒轮询一次
+    await new Promise(resolve => setTimeout(resolve, 1000));
 
     const resResponse = await fetch(`${baseUrl}/api/st-bridge/response/${commandId}`);
     if (!resResponse.ok) {
-      console.error('[StoryShare Workshop] 获取响应失败:', resResponse.status);
+      console.error('[ST创意工坊] 获取响应失败:', resResponse.status);
       continue;
     }
 
     const resData = await resResponse.json();
     if (resData.success && resData.response) {
-      console.log('[StoryShare Workshop] 收到响应:', resData.response);
+      console.log('[ST创意工坊] 收到响应:', resData.response);
       return resData.response;
     }
-
-    // 还在等待
   }
 
   throw new Error('等待响应超时（30秒）');
@@ -234,54 +184,49 @@ async function sendHttpCommand(type, payload) {
 
 function startW2EPolling() {
   if (_w2ePolling) {
-    console.log('[StoryShare Workshop] w2e 轮询已在运行，跳过重复启动');
+    console.log('[ST创意工坊] w2e 轮询已在运行，跳过重复启动');
     return;
   }
   _w2ePolling = true;
   _w2eAbortController = new AbortController();
 
   const baseUrl = getApiBaseUrl();
-  console.log('[StoryShare Workshop] 启动 w2e 轮询... baseUrl =', baseUrl);
+  console.log('[ST创意工坊] 启动 w2e 轮询... baseUrl =', baseUrl);
 
   if (!baseUrl) {
-    console.error('[StoryShare Workshop] 无法启动 w2e 轮询：API 地址未配置');
+    console.error('[ST创意工坊] 无法启动 w2e 轮询：API 地址未配置');
     _w2ePolling = false;
     return;
   }
 
   const poll = async () => {
-    console.log('[StoryShare Workshop] w2e poll 循环开始');
+    console.log('[ST创意工坊] w2e poll 循环开始');
     while (_w2ePolling) {
-      console.log('[StoryShare Workshop] w2e 发起长轮询请求:', `${baseUrl}/api/st-bridge/w2e-poll`);
       try {
         const res = await fetch(`${baseUrl}/api/st-bridge/w2e-poll`, {
           signal: _w2eAbortController.signal,
         });
-        console.log('[StoryShare Workshop] w2e 长轮询响应状态:', res.status);
         if (!res.ok) {
-          console.warn('[StoryShare Workshop] w2e 轮询响应异常，5 秒后重试，状态码:', res.status);
+          console.warn('[ST创意工坊] w2e 轮询响应异常，5 秒后重试，状态码:', res.status);
           await new Promise(r => setTimeout(r, 5000));
           continue;
         }
         const data = await res.json();
-        console.log('[StoryShare Workshop] w2e 轮询数据:', JSON.stringify(data).slice(0, 200));
         if (data.success && data.command) {
-          console.log('[StoryShare Workshop] w2e 收到命令:', data.command.type, data.command.id);
+          console.log('[ST创意工坊] w2e 收到命令:', data.command.type, data.command.id);
           await handleW2ECommand(data.command, baseUrl);
-        } else {
-          // command 为 null：超时，立即重新发起
-          console.log('[StoryShare Workshop] w2e 轮询超时（无命令），立即重新发起');
         }
+        // command 为 null 表示长轮询超时，立即重新发起
       } catch (err) {
         if (err.name === 'AbortError') {
-          console.log('[StoryShare Workshop] w2e 轮询已停止（AbortError）');
+          console.log('[ST创意工坊] w2e 轮询已停止');
           break;
         }
-        console.error('[StoryShare Workshop] w2e 轮询出错:', err.name, err.message);
+        console.error('[ST创意工坊] w2e 轮询出错:', err.name, err.message);
         await new Promise(r => setTimeout(r, 5000));
       }
     }
-    console.log('[StoryShare Workshop] w2e poll 循环结束，_w2ePolling =', _w2ePolling);
+    console.log('[ST创意工坊] w2e poll 循环结束');
   };
 
   poll();
@@ -308,11 +253,11 @@ async function handleW2ECommand(command, baseUrl) {
         result = await handleUnsubscribe(payload);
         break;
       default:
-        console.warn('[StoryShare Workshop] w2e 未知命令:', type);
+        console.warn('[ST创意工坊] w2e 未知命令:', type);
         result = { success: false, message: '未知命令类型: ' + type };
     }
   } catch (err) {
-    console.error('[StoryShare Workshop] w2e 命令执行失败:', err);
+    console.error('[ST创意工坊] w2e 命令执行失败:', err);
     result = { success: false, message: err.message };
   }
 
@@ -323,9 +268,9 @@ async function handleW2ECommand(command, baseUrl) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ commandId: id, result }),
     });
-    console.log('[StoryShare Workshop] w2e 响应已提交:', id);
+    console.log('[ST创意工坊] w2e 响应已提交:', id);
   } catch (err) {
-    console.error('[StoryShare Workshop] w2e 响应提交失败:', err);
+    console.error('[ST创意工坊] w2e 响应提交失败:', err);
   }
 }
 
@@ -335,36 +280,29 @@ async function handleW2ECommand(command, baseUrl) {
 
 async function handleWorkshopMessage(event) {
   // 安全检查：必须是我们打开的窗口
-  if (!workshopWindow || event.source !== workshopWindow) {
-    return;
-  }
+  if (!workshopWindow || event.source !== workshopWindow) return;
 
   const { type, payload } = event.data || {};
   if (!type) return;
 
-  console.log('[StoryShare Workshop] 收到消息:', type, payload);
+  console.log('[ST创意工坊] 收到消息:', type, payload);
 
   switch (type) {
     case 'workshop_ping':
-      // 握手响应
-      console.log('[StoryShare Workshop] 发送 pong 响应');
+      console.log('[ST创意工坊] 发送 pong 响应');
       workshopWindow.postMessage({ type: 'workshop_pong', connected: true }, '*');
       break;
-
     case 'workshop_scan':
       await handleScan(payload);
       break;
-
     case 'workshop_subscribe':
       await handleSubscribe(payload);
       break;
-
     case 'workshop_unsubscribe':
       await handleUnsubscribe(payload);
       break;
-
     default:
-      console.warn('[StoryShare Workshop] 未知消息类型:', type);
+      console.warn('[ST创意工坊] 未知消息类型:', type);
   }
 }
 
@@ -383,7 +321,6 @@ async function handleScan(payload) {
     const TH = window.TavernHelper;
     if (!TH) throw new Error('TavernHelper 不可用');
 
-    // 检查世界书是否存在
     const names = TH.getWorldbookNames();
     if (!names.includes(worldbookName)) {
       const result = { success: true, packIds: [], entryCountMap: {} };
@@ -402,11 +339,10 @@ async function handleScan(payload) {
 
     const packIds = Object.keys(packMap).map(Number);
     const result = { success: true, packIds, entryCountMap: packMap };
-    
     sendResult('workshop_scan_result', result);
-    return result; // 同时返回，以便 HTTP 调用使用
+    return result;
   } catch (err) {
-    console.error('[StoryShare Workshop] 扫描失败:', err);
+    console.error('[ST创意工坊] 扫描失败:', err);
     const result = { success: false, packIds: [], entryCountMap: {} };
     sendResult('workshop_scan_result', result);
     return result;
@@ -442,23 +378,21 @@ async function handleSubscribe(payload) {
       { render: 'debounced' }
     );
 
-    // 插入新条目（不传 uid，由 TavernHelper 自动分配）
+    // 插入新条目
     await TH.createWorldbookEntries(worldbookName, entries, { render: 'immediate' });
 
     const result = {
       success: true,
       message: `已将「${packTitle}」的 ${entries.length} 条条目插入世界书「${worldbookName}」`,
     };
-    
     sendResult('workshop_subscribe_result', result);
-    toastr.success(`已订阅「${packTitle}」`, 'StoryShare 工坊');
-    
+    toastr.success(`已订阅「${packTitle}」`, 'ST创意工坊');
     return result;
   } catch (err) {
-    console.error('[StoryShare Workshop] 订阅失败:', err);
+    console.error('[ST创意工坊] 订阅失败:', err);
     const result = { success: false, message: '插入世界书失败：' + err.message };
     sendResult('workshop_subscribe_result', result);
-    toastr.error('订阅失败', 'StoryShare 工坊');
+    toastr.error('订阅失败', 'ST创意工坊');
     return result;
   }
 }
@@ -479,7 +413,6 @@ async function handleUnsubscribe(payload) {
     const TH = window.TavernHelper;
     if (!TH) throw new Error('TavernHelper 不可用');
 
-    // 检查世界书是否存在
     const names = TH.getWorldbookNames();
     if (!names.includes(worldbookName)) {
       const result = { success: true, message: '世界书不存在', removedCount: 0 };
@@ -499,20 +432,18 @@ async function handleUnsubscribe(payload) {
       message: `已从世界书移除 ${removedCount} 条条目`,
       removedCount,
     };
-
     sendResult('workshop_unsubscribe_result', result);
-    toastr.success(`已取消订阅`, 'StoryShare 工坊');
-    
+    toastr.success('已取消订阅', 'ST创意工坊');
     return result;
   } catch (err) {
-    console.error('[StoryShare Workshop] 取消订阅失败:', err);
+    console.error('[ST创意工坊] 取消订阅失败:', err);
     const result = {
       success: false,
       message: '移除世界书条目失败：' + err.message,
       removedCount: 0,
     };
     sendResult('workshop_unsubscribe_result', result);
-    toastr.error('取消订阅失败', 'StoryShare 工坊');
+    toastr.error('取消订阅失败', 'ST创意工坊');
     return result;
   }
 }
