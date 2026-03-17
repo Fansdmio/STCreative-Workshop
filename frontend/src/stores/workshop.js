@@ -511,14 +511,27 @@ export const useWorkshopStore = defineStore('workshop', () => {
 
   // 初始化 ST 扩展模式（发送 ping，握手）
   async function initStExtensionMode() {
-    if (!isFromStExtension()) return
-    if (stConnected.value) return // 已连接，幂等
+    console.log('[Workshop] 检查 ST 扩展模式...')
+    console.log('[Workshop] window.opener:', window.opener)
+    console.log('[Workshop] isFromStExtension():', isFromStExtension())
+    
+    if (!isFromStExtension()) {
+      console.log('[Workshop] 不是从 ST 扩展打开，跳过初始化')
+      return
+    }
+    if (stConnected.value) {
+      console.log('[Workshop] 已连接，跳过重复初始化')
+      return // 已连接，幂等
+    }
 
+    console.log('[Workshop] 设置消息监听器并发送 ping...')
     _setupMessageListener()
     try {
       window.opener.postMessage({ type: 'workshop_ping', payload: {} }, '*')
+      console.log('[Workshop] ping 已发送，等待 pong...')
       // 等待 500ms 让 pong 返回
       await new Promise((resolve) => setTimeout(resolve, 500))
+      console.log('[Workshop] 握手完成，stConnected:', stConnected.value)
     } catch (err) {
       console.error('[Workshop] ST 扩展握手失败:', err)
     }

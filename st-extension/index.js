@@ -131,6 +131,7 @@ async function handleWorkshopMessage(event) {
   switch (type) {
     case 'workshop_ping':
       // 握手响应
+      console.log('[StoryShare Workshop] 发送 pong 响应');
       workshopWindow.postMessage({ type: 'workshop_pong', connected: true }, '*');
       break;
 
