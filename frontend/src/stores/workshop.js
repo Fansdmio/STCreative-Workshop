@@ -80,6 +80,7 @@ export const useWorkshopStore = defineStore('workshop', () => {
   let _pending = {} // { requestId: { resolve, reject, timer } } 非响应式
   let _listenerAdded = false
   let _requestCounter = 0
+  let _stExtensionWindow = null // ST 扩展窗口引用（用于跨域场景）
 
   // ── 工坊列表状态 ─────────────────────────────────────────────
   const workshops = ref([])
@@ -440,11 +441,28 @@ export const useWorkshopStore = defineStore('workshop', () => {
     _listenerAdded = true
 
     window.addEventListener('message', (event) => {
-      // 安全检查：必须来自 opener
-      if (event.source !== window.opener) return
-
-      const { type, success, message, packIds, entryCountMap, removedCount } = event.data || {}
+      const { type, success, message, packIds, entryCountMap, removedCount, source } = event.data || {}
       if (!type) return
+
+      console.log('[Workshop] 收到消息:', event.data, 'from:', event.origin)
+
+      // 特殊处理：接收来自 ST 扩展的 opener 引用
+      if (type === 'st_extension_opener' && source === 'storyshare_extension') {
+        console.log('[Workshop] 接收到 ST 扩展窗口引用')
+        _stExtensionWindow = event.source
+        // 立即发送 ping
+        if (_stExtensionWindow) {
+          console.log('[Workshop] 向 ST 扩展发送 ping')
+          _stExtensionWindow.postMessage({ type: 'workshop_ping', payload: {} }, '*')
+        }
+        return
+      }
+
+      // 安全检查：必须来自 opener 或已保存的扩展窗口
+      if (event.source !== window.opener && event.source !== _stExtensionWindow) {
+        console.log('[Workshop] 忽略未知来源的消息')
+        return
+      }
 
       console.log('[Workshop] 收到 ST 扩展消息:', event.data)
 
@@ -494,7 +512,10 @@ export const useWorkshopStore = defineStore('workshop', () => {
   // 发送消息给 ST 扩展（Promise 包装，5s 超时）
   function _sendToOpener(type, payload, requestKey) {
     return new Promise((resolve, reject) => {
-      if (!window.opener || window.opener === window) {
+      // 优先使用保存的扩展窗口引用，其次使用 window.opener
+      const targetWindow = _stExtensionWindow || window.opener
+      
+      if (!targetWindow || targetWindow === window) {
         reject(new Error('未从 ST 扩展打开'))
         return
       }
@@ -505,35 +526,40 @@ export const useWorkshopStore = defineStore('workshop', () => {
       }, 5000)
 
       _pending[requestKey] = { resolve, reject, timer }
-      window.opener.postMessage({ type, payload }, '*')
+      targetWindow.postMessage({ type, payload }, '*')
     })
   }
 
   // 初始化 ST 扩展模式（发送 ping，握手）
   async function initStExtensionMode() {
-    console.log('[Workshop] 检查 ST 扩展模式...')
+    console.log('[Workshop] 初始化 ST 扩展模式...')
     console.log('[Workshop] window.opener:', window.opener)
-    console.log('[Workshop] isFromStExtension():', isFromStExtension())
+    console.log('[Workshop] _stExtensionWindow:', _stExtensionWindow)
     
-    if (!isFromStExtension()) {
-      console.log('[Workshop] 不是从 ST 扩展打开，跳过初始化')
-      return
-    }
     if (stConnected.value) {
       console.log('[Workshop] 已连接，跳过重复初始化')
       return // 已连接，幂等
     }
 
-    console.log('[Workshop] 设置消息监听器并发送 ping...')
+    // 始终设置监听器，等待扩展发送 opener 引用
+    console.log('[Workshop] 设置消息监听器，等待 ST 扩展连接...')
     _setupMessageListener()
-    try {
-      window.opener.postMessage({ type: 'workshop_ping', payload: {} }, '*')
-      console.log('[Workshop] ping 已发送，等待 pong...')
-      // 等待 500ms 让 pong 返回
-      await new Promise((resolve) => setTimeout(resolve, 500))
-      console.log('[Workshop] 握手完成，stConnected:', stConnected.value)
-    } catch (err) {
-      console.error('[Workshop] ST 扩展握手失败:', err)
+    
+    // 如果有 window.opener，尝试发送 ping
+    if (window.opener && window.opener !== window) {
+      try {
+        console.log('[Workshop] 检测到 window.opener，发送 ping...')
+        window.opener.postMessage({ type: 'workshop_ping', payload: {} }, '*')
+        console.log('[Workshop] ping 已发送，等待 pong...')
+        // 等待 500ms 让 pong 返回
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        console.log('[Workshop] 握手完成，stConnected:', stConnected.value)
+      } catch (err) {
+        console.error('[Workshop] ST 扩展握手失败:', err)
+      }
+    } else {
+      console.log('[Workshop] 无 window.opener，等待扩展主动发送引用...')
+      // 等待扩展发送 st_extension_opener 消息
     }
   }
 

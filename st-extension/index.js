@@ -110,7 +110,34 @@ function openWorkshop() {
 
   if (!workshopWindow) {
     toastr.error('无法打开工坊窗口，请检查浏览器弹窗拦截设置', 'StoryShare 工坊');
+    return;
   }
+
+  // 等待工坊窗口加载完成后，主动发送连接信息
+  // 使用轮询方式发送 opener_ref，确保工坊窗口接收到
+  let pingAttempts = 0;
+  const pingInterval = setInterval(() => {
+    if (workshopWindow.closed) {
+      clearInterval(pingInterval);
+      return;
+    }
+    
+    try {
+      workshopWindow.postMessage({ 
+        type: 'st_extension_opener', 
+        source: 'storyshare_extension' 
+      }, '*');
+      pingAttempts++;
+      
+      // 最多尝试 20 次（10 秒）
+      if (pingAttempts >= 20) {
+        clearInterval(pingInterval);
+      }
+    } catch (err) {
+      console.error('[StoryShare Workshop] 发送 opener 引用失败:', err);
+      clearInterval(pingInterval);
+    }
+  }, 500);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
