@@ -16,13 +16,6 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      // st-bridge 长轮询专用代理：关闭超时，避免 502
-      '/api/st-bridge': {
-        target: 'http://localhost:3000',
-        changeOrigin: true,
-        timeout: 0,
-        proxyTimeout: 0,
-      },
       '/api': {
         target: 'http://localhost:3000',
         changeOrigin: true,
