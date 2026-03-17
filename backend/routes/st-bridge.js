@@ -18,6 +18,7 @@ let e2wCounter = 0;
 const w2eCommands = [];     // 待扩展处理的命令
 const w2eResponses = {};    // 待工坊读取的响应 { commandId: result }
 let w2eCounter = 0;
+let lastW2EPollAt = null;   // 扩展最近一次发起 w2e 长轮询的时间戳
 
 // ── 工具：长轮询辅助函数 ──────────────────────────────────────────────────
 function longPoll(req, res, queue, label) {
@@ -131,6 +132,7 @@ router.post('/w2e-command', (req, res) => {
 
 // 扩展长轮询获取命令
 router.get('/w2e-poll', (req, res) => {
+  lastW2EPollAt = Date.now(); // 记录扩展存活时间
   longPoll(req, res, w2eCommands, '扩展');
 });
 
@@ -166,6 +168,7 @@ router.get('/ping', (req, res) => {
     success: true,
     e2w: { pendingCommands: e2wCommands.length, pendingResponses: Object.keys(e2wResponses).length },
     w2e: { pendingCommands: w2eCommands.length, pendingResponses: Object.keys(w2eResponses).length },
+    lastW2EPollAt,  // 扩展最近一次 w2e 轮询时间（null 表示本次服务器启动后从未轮询）
   });
 });
 

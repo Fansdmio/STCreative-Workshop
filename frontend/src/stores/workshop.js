@@ -532,6 +532,28 @@ export const useWorkshopStore = defineStore('workshop', () => {
   async function _sendW2ECommand(type, payload) {
     console.log('[Workshop] 发送 w2e 命令:', type)
 
+    // 0. 活性检查：确保扩展在最近 60 秒内有发过 w2e-poll 请求
+    //    若没有，说明扩展已断开（重启/重载），立即置 stConnected=false
+    try {
+      const statusRes = await fetch('/api/st-bridge/ping', { credentials: 'include' })
+      if (statusRes.ok) {
+        const status = await statusRes.json()
+        const age = status.lastW2EPollAt ? Date.now() - status.lastW2EPollAt : Infinity
+        console.log('[Workshop] w2e 扩展最近轮询时间:', status.lastW2EPollAt, '距今(ms):', age)
+        if (age > 60000) {
+          // 扩展超过 60 秒未轮询，判定为离线
+          stConnected.value = false
+          console.warn('[Workshop] 扩展轮询超时，连接已重置')
+          throw new Error('ST 扩展已断开，请重新打开工坊弹窗以重连')
+        }
+      }
+    } catch (err) {
+      // 如果 err 是我们主动抛的（断开），直接向上冒泡
+      if (err.message.includes('ST 扩展已断开')) throw err
+      // 否则是网络错误，继续尝试（不阻断）
+      console.warn('[Workshop] w2e 活性检查失败（网络错误），继续发送命令:', err.message)
+    }
+
     // 1. 发送命令入队
     const cmdRes = await fetch('/api/st-bridge/w2e-command', {
       method: 'POST',
@@ -559,7 +581,11 @@ export const useWorkshopStore = defineStore('workshop', () => {
         return resData.response
       }
     }
-    throw new Error('等待扩展响应超时（30秒）')
+
+    // 3. 超时：重置连接状态，下次操作会触发重新握手
+    stConnected.value = false
+    console.warn('[Workshop] w2e 等待超时，已重置 stConnected')
+    throw new Error('等待扩展响应超时（30秒）。连接已重置，请重新打开工坊弹窗')
   }
 
   // 初始化 ST 扩展模式（发送 ping，握手）
