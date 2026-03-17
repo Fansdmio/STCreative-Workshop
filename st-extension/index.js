@@ -2,6 +2,7 @@
  * ST创意工坊 SillyTavern 扩展
  *
  * 提供弹窗式创意工坊浏览器，支持直接订阅/退订模组并插入世界书
+ * 通过 postMessage 与工坊页面双向通信，无需 HTTP 桥接
  */
 
 import { getContext } from '../../../extensions.js';
@@ -9,13 +10,7 @@ import { getContext } from '../../../extensions.js';
 // ← 部署后将此处替换为你的工坊完整 URL（包含 /StoryShare/ 路径）
 const WORKSHOP_URL = 'https://YOUR_DOMAIN_HERE/StoryShare/';
 
-const EXTENSION_NAME = 'st-workshop';
-
 let workshopWindow = null;
-
-// w2e 轮询状态
-let _w2ePolling = false;
-let _w2eAbortController = null;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 扩展初始化
@@ -83,24 +78,11 @@ function openWorkshop() {
     return;
   }
 
-  // 等待页面加载后发送 HTTP ping，通知工坊建立连接
-  setTimeout(() => {
-    sendHttpCommand('ping', {})
-      .then(() => {
-        console.log('[ST创意工坊] HTTP 连接已建立');
-        toastr.success('工坊已连接', 'ST创意工坊');
-        // ping 成功后启动 w2e 轮询，接收来自工坊的命令
-        startW2EPolling();
-      })
-      .catch(err => {
-        console.error('[ST创意工坊] HTTP 连接失败:', err);
-      });
-  }, 2000);
-
-  // postMessage 备用握手（同源时可能成功）
+  // 持续发送 opener 引用，直到工坊页面就绪并响应
+  // （工坊页面加载完成后会接收此消息并回发 workshop_ping）
   let pingAttempts = 0;
   const pingInterval = setInterval(() => {
-    if (workshopWindow.closed) {
+    if (!workshopWindow || workshopWindow.closed) {
       clearInterval(pingInterval);
       return;
     }
@@ -110,168 +92,12 @@ function openWorkshop() {
         source: 'st_workshop_extension',
       }, '*');
       pingAttempts++;
-      if (pingAttempts >= 20) clearInterval(pingInterval);
+      if (pingAttempts >= 40) clearInterval(pingInterval); // 最多尝试 20 秒
     } catch (err) {
       console.error('[ST创意工坊] 发送 opener 引用失败:', err);
       clearInterval(pingInterval);
     }
   }, 500);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// HTTP 桥接通信
-// ═══════════════════════════════════════════════════════════════════════════
-
-// 从硬编码的工坊 URL 中提取 API 基础地址
-function getApiBaseUrl() {
-  try {
-    const url = new URL(WORKSHOP_URL);
-    return `${url.protocol}//${url.host}`;
-  } catch (err) {
-    console.error('[ST创意工坊] 无法解析工坊 URL:', err);
-    return null;
-  }
-}
-
-// 发送 HTTP 命令到后端桥接
-async function sendHttpCommand(type, payload) {
-  const baseUrl = getApiBaseUrl();
-  if (!baseUrl) throw new Error('无法获取 API 基础 URL');
-
-  console.log('[ST创意工坊] 发送 HTTP 命令:', type);
-
-  // 1. 发送命令
-  const cmdResponse = await fetch(`${baseUrl}/api/st-bridge/command`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ type, payload }),
-  });
-
-  if (!cmdResponse.ok) throw new Error(`发送命令失败: ${cmdResponse.status}`);
-
-  const cmdData = await cmdResponse.json();
-  if (!cmdData.success) throw new Error('发送命令失败');
-
-  const commandId = cmdData.commandId;
-  console.log('[ST创意工坊] 命令已发送:', commandId);
-
-  // 2. 轮询获取响应（最多 30 秒）
-  const startTime = Date.now();
-  const timeout = 30000;
-
-  while (Date.now() - startTime < timeout) {
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    const resResponse = await fetch(`${baseUrl}/api/st-bridge/response/${commandId}`);
-    if (!resResponse.ok) {
-      console.error('[ST创意工坊] 获取响应失败:', resResponse.status);
-      continue;
-    }
-
-    const resData = await resResponse.json();
-    if (resData.success && resData.response) {
-      console.log('[ST创意工坊] 收到响应:', resData.response);
-      return resData.response;
-    }
-  }
-
-  throw new Error('等待响应超时（30秒）');
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// w2e 反向通道：轮询工坊发来的命令并执行
-// ═══════════════════════════════════════════════════════════════════════════
-
-function startW2EPolling() {
-  if (_w2ePolling) {
-    console.log('[ST创意工坊] w2e 轮询已在运行，跳过重复启动');
-    return;
-  }
-  _w2ePolling = true;
-  _w2eAbortController = new AbortController();
-
-  const baseUrl = getApiBaseUrl();
-  console.log('[ST创意工坊] 启动 w2e 轮询... baseUrl =', baseUrl);
-
-  if (!baseUrl) {
-    console.error('[ST创意工坊] 无法启动 w2e 轮询：API 地址未配置');
-    _w2ePolling = false;
-    return;
-  }
-
-  const poll = async () => {
-    console.log('[ST创意工坊] w2e poll 循环开始');
-    while (_w2ePolling) {
-      try {
-        const res = await fetch(`${baseUrl}/api/st-bridge/w2e-poll`, {
-          signal: _w2eAbortController.signal,
-        });
-        if (!res.ok) {
-          console.warn('[ST创意工坊] w2e 轮询响应异常，5 秒后重试，状态码:', res.status);
-          await new Promise(r => setTimeout(r, 5000));
-          continue;
-        }
-        const data = await res.json();
-        if (data.success && data.command) {
-          console.log('[ST创意工坊] w2e 收到命令:', data.command.type, data.command.id);
-          await handleW2ECommand(data.command, baseUrl);
-        }
-        // command 为 null 表示长轮询超时，立即重新发起
-      } catch (err) {
-        if (err.name === 'AbortError') {
-          console.log('[ST创意工坊] w2e 轮询已停止');
-          break;
-        }
-        console.error('[ST创意工坊] w2e 轮询出错:', err.name, err.message);
-        await new Promise(r => setTimeout(r, 5000));
-      }
-    }
-    console.log('[ST创意工坊] w2e poll 循环结束');
-  };
-
-  poll();
-}
-
-function stopW2EPolling() {
-  if (_w2eAbortController) _w2eAbortController.abort();
-  _w2ePolling = false;
-}
-
-async function handleW2ECommand(command, baseUrl) {
-  const { id, type, payload } = command;
-  let result;
-
-  try {
-    switch (type) {
-      case 'scan':
-        result = await handleScan(payload);
-        break;
-      case 'subscribe':
-        result = await handleSubscribe(payload);
-        break;
-      case 'unsubscribe':
-        result = await handleUnsubscribe(payload);
-        break;
-      default:
-        console.warn('[ST创意工坊] w2e 未知命令:', type);
-        result = { success: false, message: '未知命令类型: ' + type };
-    }
-  } catch (err) {
-    console.error('[ST创意工坊] w2e 命令执行失败:', err);
-    result = { success: false, message: err.message };
-  }
-
-  // 把结果提交回后端
-  try {
-    await fetch(`${baseUrl}/api/st-bridge/w2e-response`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ commandId: id, result }),
-    });
-    console.log('[ST创意工坊] w2e 响应已提交:', id);
-  } catch (err) {
-    console.error('[ST创意工坊] w2e 响应提交失败:', err);
-  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -289,7 +115,8 @@ async function handleWorkshopMessage(event) {
 
   switch (type) {
     case 'workshop_ping':
-      console.log('[ST创意工坊] 发送 pong 响应');
+      // 工坊已就绪，回应 pong 完成握手
+      console.log('[ST创意工坊] 握手完成，发送 pong');
       workshopWindow.postMessage({ type: 'workshop_pong', connected: true }, '*');
       break;
     case 'workshop_scan':
