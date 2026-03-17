@@ -4,7 +4,7 @@
  * 提供弹窗式创意工坊浏览器，支持直接订阅/退订模组并插入世界书
  */
 
-import { extension_settings, getContext, saveSettingsDebounced } from '../../../extensions.js';
+import { extension_settings, getContext } from '../../../extensions.js';
 import { eventSource, event_types } from '../../../../script.js';
 
 const EXTENSION_NAME = 'storyshare-workshop';
@@ -63,9 +63,12 @@ jQuery(async () => {
   container.append(settingsHtml);
 
   // 绑定事件
-  $('#storyshare_workshop_url').on('input', function () {
+  $('#storyshare_workshop_url').on('input', async function () {
     extension_settings[EXTENSION_NAME].workshopUrl = String($(this).val()).trim();
-    saveSettingsDebounced();
+    const ctx = getContext?.() ?? SillyTavern;
+    if (ctx && typeof ctx.saveSettingsDebounced === 'function') {
+      await ctx.saveSettingsDebounced();
+    }
   });
 
   $('#storyshare_open_workshop').on('click', openWorkshop);
