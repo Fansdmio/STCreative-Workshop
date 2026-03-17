@@ -325,8 +325,8 @@ export const useWorkshopStore = defineStore('workshop', () => {
         currentPack.value.sub_count = json.sub_count
       }
 
-      // ST 扩展模式
-      if (isFromStExtension() && stConnected.value) {
+      // ST 扩展模式（stConnected 已是可靠标志，不再依赖 window.opener）
+      if (stConnected.value) {
         if (json.subscribed) {
           await _subscribeViaST(pack)
         } else {
@@ -905,8 +905,8 @@ export const useWorkshopStore = defineStore('workshop', () => {
 
   // 扫描世界书，构建已订阅 pack 的映射 { packId: true }
   async function scanSubscribedPacks() {
-    // ST 扩展模式
-    if (isFromStExtension() && stConnected.value) {
+    // ST 扩展模式（stConnected 已是可靠标志，不再依赖 window.opener）
+    if (stConnected.value) {
       stLoading.value = true
       await _scanViaST(worldbookName.value)
       stLoading.value = false
