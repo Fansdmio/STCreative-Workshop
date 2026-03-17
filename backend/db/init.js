@@ -262,6 +262,27 @@ function initSchema() {
   } catch (_) {
     // 列已存在，忽略
   }
+
+  // 迁移：给 users 添加 display_name 列（Discord global_name，主显示名）
+  try {
+    db.exec(`ALTER TABLE users ADD COLUMN display_name TEXT`);
+  } catch (_) {
+    // 列已存在，忽略
+  }
+
+  // 迁移：将内置工坊（steampunk、chainsaw）的作者更新为 alycesingle
+  // 仅在 author_id 为 NULL 且 alycesingle 用户已存在时执行
+  try {
+    db.exec(`
+      UPDATE workshops
+      SET author_id = (SELECT id FROM users WHERE username = 'alycesingle' LIMIT 1)
+      WHERE slug IN ('steampunk', 'chainsaw')
+        AND author_id IS NULL
+        AND (SELECT id FROM users WHERE username = 'alycesingle' LIMIT 1) IS NOT NULL
+    `);
+  } catch (_) {
+    // 忽略（用户可能尚未登录过，待首次登录后自动回填）
+  }
 }
 
 module.exports = { getDb };

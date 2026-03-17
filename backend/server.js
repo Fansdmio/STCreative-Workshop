@@ -82,14 +82,14 @@ const discordStrategy = new DiscordStrategy(
 
       if (existing) {
         db.prepare(
-          `UPDATE users SET username = ?, avatar = ? WHERE discord_id = ?`
-        ).run(profile.username, profile.avatar, profile.id);
-        return done(null, { ...existing, username: profile.username, avatar: profile.avatar });
+          `UPDATE users SET username = ?, avatar = ?, display_name = ? WHERE discord_id = ?`
+        ).run(profile.username, profile.avatar, profile.global_name || null, profile.id);
+        return done(null, { ...existing, username: profile.username, avatar: profile.avatar, display_name: profile.global_name || null });
       }
 
       const info = db
-        .prepare(`INSERT INTO users (discord_id, username, avatar) VALUES (?, ?, ?)`)
-        .run(profile.id, profile.username, profile.avatar);
+        .prepare(`INSERT INTO users (discord_id, username, avatar, display_name) VALUES (?, ?, ?, ?)`)
+        .run(profile.id, profile.username, profile.avatar, profile.global_name || null);
 
       const user = db.prepare(`SELECT * FROM users WHERE id = ?`).get(info.lastInsertRowid);
       return done(null, user);

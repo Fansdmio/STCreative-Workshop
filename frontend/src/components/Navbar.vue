@@ -41,7 +41,7 @@
                 style="border: 2px solid #F97316;"
               />
               <span class="hidden sm:block text-sm font-bold max-w-[100px] truncate" style="font-family: 'Nunito', sans-serif; color: #EA580C;">
-                {{ authStore.user.username }}
+                {{ authStore.user.display_name || authStore.user.username }}
               </span>
               <svg
                 class="w-4 h-4 transition-transform duration-200"
@@ -66,6 +66,23 @@
                 class="absolute right-0 mt-2 w-52 py-2 z-50"
                 style="background: #FFFBF0; border: 2.5px solid #FDBA74; border-radius: 16px; box-shadow: 4px 4px 0 #FDBA74; transform: rotate(0.5deg);"
               >
+                <!-- 我的订阅 -->
+                <RouterLink
+                  to="/profile"
+                  class="flex items-center gap-2 w-full px-4 py-2.5 text-sm font-semibold transition-colors"
+                  style="font-family: 'Nunito', sans-serif; color: #EA580C;"
+                  @click="menuOpen = false"
+                >
+                  <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 22c1.1 0 2-.9 2-2H10c0 1.1.9 2 2 2z"/>
+                    <path d="M18 16V11a6 6 0 0 0-5-5.91V4a1 1 0 0 0-2 0v1.09A6 6 0 0 0 6 11v5l-2 2v1h16v-1l-2-2z"/>
+                  </svg>
+                  我的订阅
+                </RouterLink>
+
+                <!-- 分割线 -->
+                <div style="border-top: 1.5px dashed #FED7AA; margin: 4px 12px;"></div>
+
                 <button
                   @click="handleLogout"
                   class="flex items-center gap-2 w-full px-4 py-2.5 text-sm font-semibold cursor-pointer transition-colors"

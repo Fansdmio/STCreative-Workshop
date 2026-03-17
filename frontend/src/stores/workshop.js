@@ -84,6 +84,10 @@ export const useWorkshopStore = defineStore('workshop', () => {
   const workshops = ref([])
   const workshopsLoading = ref(false)
 
+  // ── 我的订阅状态 ─────────────────────────────────────────────
+  const mySubscriptions = ref([])
+  const mySubscriptionsLoading = ref(false)
+
   // ── 动态世界书名称 ────────────────────────────────────────────
   // 默认读取 steampunk 分区的 localStorage 值（或默认值）
   const worldbookName = ref(getWorldbookName('steampunk'))
@@ -105,6 +109,22 @@ export const useWorkshopStore = defineStore('workshop', () => {
   }
 
   // ── 工坊 API 操作 ────────────────────────────────────────────
+
+  // 获取当前用户的订阅模组列表
+  async function fetchMySubscriptions() {
+    mySubscriptionsLoading.value = true
+    error.value = null
+    try {
+      const res = await fetch('/api/workshop/my-subscriptions', { credentials: 'include' })
+      if (!res.ok) throw new Error('获取订阅列表失败')
+      const json = await res.json()
+      mySubscriptions.value = json.data
+    } catch (err) {
+      error.value = err.message || '获取订阅列表失败'
+    } finally {
+      mySubscriptionsLoading.value = false
+    }
+  }
 
   async function fetchWorkshops() {
     workshopsLoading.value = true
@@ -1055,6 +1075,8 @@ export const useWorkshopStore = defineStore('workshop', () => {
     worldbookName,
     workshops,
     workshopsLoading,
+    mySubscriptions,
+    mySubscriptionsLoading,
     // ST 扩展状态
     stConnected,
     stNotification,
@@ -1062,6 +1084,7 @@ export const useWorkshopStore = defineStore('workshop', () => {
     fetchPacks,
     fetchPack,
     fetchWorkshops,
+    fetchMySubscriptions,
     toggleLike,
     toggleSubscribe,
     createPack,

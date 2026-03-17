@@ -54,7 +54,7 @@ async function handleSubmit() {
 }
 
 function goBack() {
-  router.push({ name: 'workshop' })
+  router.push({ name: 'home' })
 }
 </script>
 
@@ -88,7 +88,7 @@ function goBack() {
           审批通过后工坊将出现在工坊列表中。
         </p>
       </div>
-      <button class="btn-primary" @click="goBack">返回工坊列表</button>
+      <button class="btn-primary" @click="goBack">返回主页</button>
     </div>
 
     <form v-else @submit.prevent="handleSubmit" class="flex flex-col gap-5">
@@ -162,7 +162,6 @@ function goBack() {
         <p class="font-bold mb-1">工坊须知</p>
         <p>・工坊申请需要管理员审批，审批通过后才会对外显示</p>
         <p>・任何登录用户都可以在工坊内创建模组</p>
-        <p>・内置工坊（蒸汽朋克、电锯人）不可编辑或删除</p>
         <p>・创建的工坊 slug 由名称自动生成，不可更改</p>
       </div>
 

@@ -67,6 +67,22 @@
   66% { transform: scale(0.97) rotate(-1.5deg); }
 }
 
+@keyframes like-pop {
+  0%   { transform: scale(1) rotate(0deg); }
+  35%  { transform: scale(1.5) rotate(-12deg); }
+  65%  { transform: scale(0.85) rotate(6deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+
+@keyframes bell-ring {
+  0%   { transform: rotate(0deg) translateY(0); }
+  15%  { transform: rotate(-22deg) translateY(-1px); }
+  35%  { transform: rotate(18deg) translateY(-1px); }
+  55%  { transform: rotate(-11deg) translateY(0); }
+  75%  { transform: rotate(6deg); }
+  100% { transform: rotate(0deg); }
+}
+
 @layer components {
 
   /* ===== 主按钮：珊瑚橙 ===== */
@@ -289,5 +305,30 @@
   /* ===== 卡片进入动画 ===== */
   .card-enter {
     animation: sketch-in 0.35s ease-out both;
+  }
+
+  /* ===== 点赞 / 订阅行动按钮（悬停动画） ===== */
+  .btn-action-like,
+  .btn-action-sub {
+    transition: transform 0.15s ease, box-shadow 0.15s ease !important;
+  }
+  .btn-action-like:hover {
+    transform: translateY(-2px) scale(1.07) !important;
+  }
+  .btn-action-like:active {
+    transform: translateY(1px) scale(0.93) !important;
+  }
+  .btn-action-like:hover .like-icon {
+    animation: like-pop 0.42s ease forwards;
+  }
+
+  .btn-action-sub:hover {
+    transform: translateY(-2px) scale(1.07) !important;
+  }
+  .btn-action-sub:active {
+    transform: translateY(1px) scale(0.93) !important;
+  }
+  .btn-action-sub:hover .sub-icon {
+    animation: bell-ring 0.5s ease forwards;
   }
 }

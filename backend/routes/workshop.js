@@ -44,6 +44,7 @@ function formatPack(row, isLiked = false, isSubscribed = false) {
     author: {
       id: row.author_id,
       username: row.username,
+      display_name: row.display_name || null,
       avatar: avatarUrl(row.discord_id, row.avatar),
     },
     workshop: row.w_id ? { id: row.w_id, slug: row.w_slug, name: row.w_name } : null,
@@ -142,7 +143,7 @@ router.post('/workshops', requireAuth, (req, res) => {
   }
 });
 
-// PUT /api/workshop/workshops/:id — 编辑工坊（作者或管理员；内置工坊不可编辑）
+// PUT /api/workshop/workshops/:id — 编辑工坊（作者或管理员）
 router.put('/workshops/:id', requireAuth, (req, res) => {
   const db = getDb();
   const wid = parseInt(req.params.id);
@@ -150,7 +151,6 @@ router.put('/workshops/:id', requireAuth, (req, res) => {
 
   const existing = db.prepare(`SELECT * FROM workshops WHERE id = ?`).get(wid);
   if (!existing) return res.status(404).json({ error: '工坊不存在' });
-  if (existing.author_id === null) return res.status(403).json({ error: '内置工坊不可编辑' });
 
   const userRow = db.prepare(`SELECT role FROM users WHERE id = ?`).get(req.user.id);
   const isAdmin = userRow && userRow.role === 'admin';
@@ -173,7 +173,7 @@ router.put('/workshops/:id', requireAuth, (req, res) => {
   }
 });
 
-// DELETE /api/workshop/workshops/:id — 删除工坊（作者或管理员；内置工坊不可删除）
+// DELETE /api/workshop/workshops/:id — 删除工坊（作者或管理员）
 router.delete('/workshops/:id', requireAuth, (req, res) => {
   const db = getDb();
   const wid = parseInt(req.params.id);
@@ -181,7 +181,6 @@ router.delete('/workshops/:id', requireAuth, (req, res) => {
 
   const existing = db.prepare(`SELECT * FROM workshops WHERE id = ?`).get(wid);
   if (!existing) return res.status(404).json({ error: '工坊不存在' });
-  if (existing.author_id === null) return res.status(403).json({ error: '内置工坊不可删除' });
 
   const userRow = db.prepare(`SELECT role FROM users WHERE id = ?`).get(req.user.id);
   const isAdmin = userRow && userRow.role === 'admin';
@@ -247,7 +246,7 @@ router.get('/', (req, res) => {
 
   const rows = db.prepare(`
     SELECT p.*,
-           u.username, u.avatar, u.discord_id,
+           u.username, u.avatar, u.discord_id, u.display_name,
            (SELECT COUNT(*) FROM workshop_entries e WHERE e.pack_id = p.id) AS entry_count,
            w.id as w_id, w.slug as w_slug, w.name as w_name
     FROM workshop_packs p
@@ -291,7 +290,7 @@ router.get('/packs/:packId', (req, res) => {
 
   const row = db.prepare(`
     SELECT p.*,
-           u.username, u.avatar, u.discord_id,
+           u.username, u.avatar, u.discord_id, u.display_name,
            (SELECT COUNT(*) FROM workshop_entries e WHERE e.pack_id = p.id) AS entry_count,
            w.id as w_id, w.slug as w_slug, w.name as w_name
     FROM workshop_packs p
@@ -463,6 +462,36 @@ router.post('/packs/:packId/like', requireAuth, (req, res) => {
 });
 
 // ── 订阅路由 ─────────────────────────────────────────────────────────
+
+// GET /api/workshop/my-subscriptions — 获取当前用户的订阅列表（需登录）
+router.get('/my-subscriptions', requireAuth, (req, res) => {
+  const db = getDb();
+  try {
+    const rows = db.prepare(`
+      SELECT p.*,
+             u.username, u.avatar, u.discord_id, u.display_name,
+             (SELECT COUNT(*) FROM workshop_entries e WHERE e.pack_id = p.id) AS entry_count,
+             w.id as w_id, w.slug as w_slug, w.name as w_name,
+             s.created_at as subscribed_at
+      FROM workshop_subscriptions s
+      JOIN workshop_packs p ON s.pack_id = p.id
+      JOIN users u ON p.author_id = u.id
+      LEFT JOIN workshops w ON p.workshop_id = w.id
+      WHERE s.user_id = ?
+      ORDER BY s.created_at DESC
+    `).all(req.user.id);
+
+    const data = rows.map(row => ({
+      ...formatPack(row, false, true),
+      subscribed_at: row.subscribed_at,
+    }));
+
+    res.json({ data });
+  } catch (err) {
+    console.error('[Workshop] 获取订阅列表失败:', err);
+    res.status(500).json({ error: '服务器内部错误' });
+  }
+});
 
 // POST /api/workshop/packs/:packId/subscribe — 订阅（需登录）
 router.post('/packs/:packId/subscribe', requireAuth, (req, res) => {

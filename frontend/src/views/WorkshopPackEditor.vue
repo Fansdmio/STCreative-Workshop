@@ -3,7 +3,7 @@ import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useWorkshopStore } from '@/stores/workshop'
 import { useAuthStore } from '@/stores/auth'
-import { DEFAULT_TAGS } from '@/config/sections'
+import { TAG_GROUPS } from '@/config/sections'
 
 const router = useRouter()
 const route = useRoute()
@@ -26,7 +26,6 @@ const form = ref({
   worldbook: '',        // 模组对应的目标世界书名称
   workshop_id: null,   // 关联的工坊 ID（数字）
   tags: [],
-  customTagInput: '',
 })
 
 // 新建时记录来源工坊 slug（用于 goBack 跳转）
@@ -49,9 +48,15 @@ onMounted(async () => {
   await workshopStore.fetchWorkshops()
 
   // 设置初始工坊（新建时）
-  if (!isEdit.value && workshopSlugFromQuery.value) {
-    const w = workshopStore.workshops.find(w => w.slug === workshopSlugFromQuery.value)
-    if (w) form.value.workshop_id = w.id
+  if (!isEdit.value) {
+    if (workshopSlugFromQuery.value) {
+      const w = workshopStore.workshops.find(w => w.slug === workshopSlugFromQuery.value)
+      if (w) form.value.workshop_id = w.id
+    }
+    // 若仍未选中（无 query 或 slug 不存在），默认选第一个工坊
+    if (!form.value.workshop_id && workshopStore.workshops.length) {
+      form.value.workshop_id = workshopStore.workshops[0].id
+    }
   }
 
   if (isEdit.value) {
@@ -86,15 +91,6 @@ function togglePresetTag(tag) {
   }
 }
 
-function addCustomTag() {
-  const tag = form.value.customTagInput.trim()
-  if (!tag) return
-  if (!form.value.tags.includes(tag)) {
-    form.value.tags.push(tag)
-  }
-  form.value.customTagInput = ''
-}
-
 function removeTag(tag) {
   form.value.tags = form.value.tags.filter(t => t !== tag)
 }
@@ -103,6 +99,10 @@ function removeTag(tag) {
 async function handleSubmit() {
   if (!form.value.title.trim()) {
     workshopStore.error = '模组标题不能为空'
+    return
+  }
+  if (!form.value.workshop_id) {
+    workshopStore.error = '请选择所属工坊'
     return
   }
   saving.value = true
@@ -205,7 +205,6 @@ function goBack() {
             class="input"
             style="font-family:'Nunito',sans-serif;"
           >
-            <option :value="null">— 不指定工坊 —</option>
             <option
               v-for="w in workshopStore.workshops"
               :key="w.id"
@@ -229,7 +228,7 @@ function goBack() {
         </div>
       </div>
 
-      <!-- Tags 多选 -->
+      <!-- Tags 多选（分组预设，不允许自定义） -->
       <div
         class="flex flex-col gap-4 p-5"
         style="border:2px solid #FED7AA; border-radius:16px; background:white;"
@@ -238,55 +237,32 @@ function goBack() {
           模组标签
         </h2>
 
-        <!-- 预设 4 个 chips -->
-        <div class="flex flex-wrap gap-2">
-          <button
-            v-for="tag in DEFAULT_TAGS"
-            :key="tag"
-            type="button"
-            @click="togglePresetTag(tag)"
-            class="text-xs font-bold px-3 py-1.5 rounded-full transition-all duration-150"
-            :style="form.tags.includes(tag)
-              ? 'background:#F97316; color:white; border:2px solid #EA580C; box-shadow:2px 2px 0 #EA580C;'
-              : 'background:#FFF7ED; color:#78716C; border:2px solid #E7E5E4;'"
-          >
-            {{ tag }}
-          </button>
-        </div>
-
-        <!-- 已选自定义 tags -->
-        <div v-if="form.tags.filter(t => !DEFAULT_TAGS.includes(t)).length" class="flex flex-wrap gap-2">
-          <span
-            v-for="tag in form.tags.filter(t => !DEFAULT_TAGS.includes(t))"
-            :key="tag"
-            class="flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-full"
-            style="background:#F0FDF4; color:#16A34A; border:2px solid #22C55E;"
-          >
-            {{ tag }}
-            <button type="button" @click="removeTag(tag)" class="ml-0.5 leading-none" style="color:#16A34A;">✕</button>
+        <!-- 按分组展示 chips -->
+        <div
+          v-for="group in TAG_GROUPS"
+          :key="group.label"
+          class="flex flex-col gap-2"
+        >
+          <span class="text-xs font-bold" style="color:#A8A29E; font-family:'Nunito',sans-serif; letter-spacing:0.05em;">
+            {{ group.label }}
           </span>
+          <div class="flex flex-wrap gap-2">
+            <button
+              v-for="tag in group.tags"
+              :key="tag"
+              type="button"
+              @click="togglePresetTag(tag)"
+              class="text-xs font-bold px-3 py-1.5 rounded-full transition-all duration-150"
+              :style="form.tags.includes(tag)
+                ? 'background:#F97316; color:white; border:2px solid #EA580C; box-shadow:2px 2px 0 #EA580C;'
+                : 'background:#FFF7ED; color:#78716C; border:2px solid #E7E5E4;'"
+            >
+              {{ tag }}
+            </button>
+          </div>
         </div>
 
-        <!-- 自定义 tag 输入 -->
-        <div class="flex items-center gap-2">
-          <input
-            v-model="form.customTagInput"
-            type="text"
-            class="input text-sm flex-1"
-            placeholder="自定义标签（回车添加）"
-            maxlength="20"
-            @keyup.enter.prevent="addCustomTag"
-          />
-          <button
-            type="button"
-            class="btn-secondary text-sm"
-            @click="addCustomTag"
-          >
-            添加
-          </button>
-        </div>
-
-        <!-- 已选列表预览 -->
+        <!-- 未选任何标签时提示 -->
         <p v-if="!form.tags.length" class="text-xs" style="color:#A8A29E; font-family:'Nunito',sans-serif;">
           未选择任何标签
         </p>

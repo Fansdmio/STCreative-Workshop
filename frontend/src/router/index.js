@@ -62,6 +62,14 @@ const routes = [
     props: true,
   },
 
+  // ── 个人主页 ──────────────────────────────────────────────
+  {
+    path: '/profile',
+    name: 'profile',
+    component: () => import('@/views/ProfileView.vue'),
+    meta: { requiresAuth: true },
+  },
+
   // ── 旧路由（保留，不从 Navbar 入口暴露）───────────────────
   {
     path: '/story/:id',

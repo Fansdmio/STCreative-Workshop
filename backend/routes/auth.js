@@ -29,11 +29,12 @@ router.get('/discord/callback', (req, res, next) => {
 // 获取当前登录用户信息
 router.get('/me', (req, res) => {
   if (req.isAuthenticated && req.isAuthenticated()) {
-    const { id, discord_id, username, avatar, role, created_at } = req.user;
+    const { id, discord_id, username, display_name, avatar, role, created_at } = req.user;
     res.json({
       id,
       discord_id,
       username,
+      display_name: display_name || null,
       avatar: avatar
         ? `https://cdn.discordapp.com/avatars/${discord_id}/${avatar}.png`
         : `https://cdn.discordapp.com/embed/avatars/${parseInt(discord_id) % 5}.png`,

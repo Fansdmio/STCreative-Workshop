@@ -12,11 +12,8 @@ const authStore = useAuthStore()
 const workshopStore = useWorkshopStore()
 
 // ── 工坊 slug ──────────────────────────────────────────────────────────
-// ?mine=1 时不强制默认为 steampunk（允许跨工坊查看自己的模组）
-const workshopSlug = computed(() => {
-  const w = route.query.workshop || null
-  return w || (showMine.value ? null : 'steampunk')
-})
+// null 表示显示全部工坊（不默认进入某个工坊）
+const workshopSlug = computed(() => route.query.workshop || null)
 
 const currentWorkshop = computed(() =>
   workshopStore.workshops.find(w => w.slug === workshopSlug.value) || null
@@ -40,6 +37,14 @@ function saveWorldbook() {
   worldbookEditing.value = false
 }
 function cancelEditWorldbook() {
+  worldbookEditing.value = false
+}
+
+// 恢复该工坊的默认世界书名称（来自工坊 worldbook 字段）
+function restoreDefaultWorldbook() {
+  const defaultName = currentWorkshop.value?.worldbook
+  if (!workshopSlug.value || !defaultName) return
+  workshopStore.setWorldbookName(workshopSlug.value, defaultName)
   worldbookEditing.value = false
 }
 
@@ -244,8 +249,8 @@ const newModRoute = computed(() => ({
       </div>
     </div>
 
-    <!-- 世界书名称行 -->
-    <div class="flex items-start gap-2 mb-5 flex-wrap">
+    <!-- 世界书名称行（仅在选中某个工坊时显示） -->
+    <div v-if="workshopSlug" class="flex items-start gap-2 mb-5 flex-wrap">
       <span class="text-xs font-semibold mt-1.5" style="color:#A8A29E; font-family:'Nunito',sans-serif; white-space:nowrap;">
         当前世界书：
       </span>
@@ -280,6 +285,14 @@ const newModRoute = computed(() => ({
           />
           <button class="btn-primary text-xs py-1 px-3" @click="saveWorldbook">保存</button>
           <button class="btn-secondary text-xs py-1 px-3" @click="cancelEditWorldbook">取消</button>
+          <!-- 恢复该工坊的默认世界书名称 -->
+          <button
+            v-if="currentWorkshop?.worldbook"
+            class="text-xs py-1 px-3 rounded-xl font-bold transition-colors"
+            style="background:#FFF7ED; color:#78350F; border:1.5px solid #FDBA74; font-family:'Nunito',sans-serif;"
+            @click="restoreDefaultWorldbook"
+            title="恢复为该工坊的默认世界书名称"
+          >恢复默认</button>
         </div>
       </template>
       <!-- ST 环境状态 -->
@@ -299,9 +312,6 @@ const newModRoute = computed(() => ({
           ⚠ 未连接到 SillyTavern 扩展
         </span>
       </div>
-      <span v-else-if="!isStEnv" class="text-xs w-full sm:w-auto" style="color:#FBBF24; font-family:'Nunito',sans-serif;">
-        （非 SillyTavern 环境，订阅仅计数）
-      </span>
     </div>
 
     <!-- 搜索栏 + tag 过滤 -->

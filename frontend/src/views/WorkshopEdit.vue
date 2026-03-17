@@ -48,11 +48,6 @@ onMounted(async () => {
     router.replace({ name: 'workshop' })
     return
   }
-  // 内置工坊（author_id = null）不可编辑
-  if (w.author_id === null) {
-    loadError.value = '内置工坊不可编辑'
-    return
-  }
 
   form.value = {
     name: w.name,

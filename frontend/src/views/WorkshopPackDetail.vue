@@ -1,8 +1,9 @@
 <script setup>
-import { onMounted, computed, watch } from 'vue'
+import { onMounted, computed, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useWorkshopStore } from '@/stores/workshop'
 import { useAuthStore } from '@/stores/auth'
+import ConfirmModal from '@/components/ConfirmModal.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -48,8 +49,32 @@ async function handleLike() {
   await workshopStore.toggleLike(packId.value)
 }
 
-async function handleSubscribe() {
+// 订阅确认弹窗状态
+const showSubConfirm = ref(false)
+
+// 订阅确认正文：ST 已连接时显示世界书名称
+const subConfirmMessage = computed(() => {
+  const title = `<strong>${pack.value?.title || ''}</strong>`
+  if (workshopStore.isFromStExtension() && workshopStore.stConnected) {
+    const wb = `<strong>${workshopStore.worldbookName}</strong>`
+    return `确定要订阅 ${title} 吗？<br><span style="color:#16A34A;">条目将插入世界书「${wb}」</span>`
+  }
+  return `确定要订阅 ${title} 吗？`
+})
+
+function handleSubscribe() {
   if (!authStore.isLoggedIn) { authStore.loginWithDiscord(); return }
+  // 取消订阅：无需确认，直接执行
+  if (pack.value?.is_subscribed) {
+    workshopStore.toggleSubscribe(pack.value)
+    return
+  }
+  // 订阅：弹出确认框
+  showSubConfirm.value = true
+}
+
+async function confirmSubscribe() {
+  showSubConfirm.value = false
   await workshopStore.toggleSubscribe(pack.value)
 }
 
@@ -143,7 +168,7 @@ watch(() => workshopStore.stNotification, (notif) => {
         <!-- 作者行 -->
         <div class="flex items-center gap-2.5">
           <img :src="pack.author.avatar" :alt="pack.author.username" class="w-8 h-8 rounded-full object-cover" style="border:2px solid #FDBA74;"/>
-          <span class="text-sm font-semibold" style="color:#A8A29E; font-family:'Nunito',sans-serif;">{{ pack.author.username }}</span>
+          <span class="text-sm font-semibold" style="color:#A8A29E; font-family:'Nunito',sans-serif;">{{ pack.author.display_name || pack.author.username }}</span>
         </div>
 
         <!-- 标题 -->
@@ -167,14 +192,14 @@ watch(() => workshopStore.stNotification, (notif) => {
         <div class="flex items-center gap-3 flex-wrap">
           <!-- 点赞 -->
           <button
-            class="flex items-center gap-1.5 px-4 py-2 rounded-full font-bold text-sm transition-all duration-150"
+            class="btn-action-like flex items-center gap-1.5 px-4 py-2 rounded-full font-bold text-sm transition-all duration-150"
             :style="pack.is_liked
               ? 'background:#FFF7ED; color:#EA580C; border:2.5px solid #F97316; box-shadow:3px 3px 0 #F97316;'
               : 'background:#FFFBF0; color:#A8A29E; border:2.5px solid #E7E5E4; box-shadow:3px 3px 0 #E7E5E4;'"
             @click="handleLike"
             :disabled="workshopStore.stLoading"
           >
-            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <svg class="like-icon w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
             </svg>
             {{ pack.like_count }} 点赞
@@ -182,14 +207,14 @@ watch(() => workshopStore.stNotification, (notif) => {
 
           <!-- 订阅 -->
           <button
-            class="flex items-center gap-1.5 px-4 py-2 rounded-full font-bold text-sm transition-all duration-150"
+            class="btn-action-sub flex items-center gap-1.5 px-4 py-2 rounded-full font-bold text-sm transition-all duration-150"
             :style="pack.is_subscribed
               ? 'background:#F0FDF4; color:#16A34A; border:2.5px solid #22C55E; box-shadow:3px 3px 0 #22C55E;'
               : 'background:#FFFBF0; color:#A8A29E; border:2.5px solid #E7E5E4; box-shadow:3px 3px 0 #E7E5E4;'"
             @click="handleSubscribe"
             :disabled="workshopStore.stLoading"
           >
-            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <svg class="sub-icon w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 22c1.1 0 2-.9 2-2H10c0 1.1.9 2 2 2z"/>
               <path d="M18 16V11a6 6 0 0 0-5-5.91V4a1 1 0 0 0-2 0v1.09A6 6 0 0 0 6 11v5l-2 2v1h16v-1l-2-2z"/>
             </svg>
@@ -328,4 +353,15 @@ watch(() => workshopStore.stNotification, (notif) => {
 
     </template>
   </div>
+
+  <!-- 订阅确认弹窗 -->
+  <ConfirmModal
+    v-if="showSubConfirm"
+    title="订阅模组"
+    :message="subConfirmMessage"
+    confirm-text="确认订阅"
+    cancel-text="取消"
+    @confirm="confirmSubscribe"
+    @cancel="showSubConfirm = false"
+  />
 </template>
