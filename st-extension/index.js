@@ -359,7 +359,7 @@ async function handleWorkshopMessage(event) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 扫描已订阅的 Pack（修改为同时支持 postMessage 和 HTTP）
+// 扫描已订阅的 Pack（使用 window.TavernHelper API）
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function handleScan(payload) {
@@ -370,16 +370,20 @@ async function handleScan(payload) {
   }
 
   try {
-    const ctx = getContext?.() ?? SillyTavern;
-    const data = await ctx.loadWorldInfo(worldbookName);
-    if (!data || !data.entries) {
-      sendResult('workshop_scan_result', { success: true, packIds: [], entryCountMap: {} });
-      return;
+    const TH = window.TavernHelper;
+    if (!TH) throw new Error('TavernHelper 不可用');
+
+    // 检查世界书是否存在
+    const names = TH.getWorldbookNames();
+    if (!names.includes(worldbookName)) {
+      const result = { success: true, packIds: [], entryCountMap: {} };
+      sendResult('workshop_scan_result', result);
+      return result;
     }
 
+    const entries = await TH.getWorldbook(worldbookName);
     const packMap = {}; // { packId: entryCount }
-    for (const uid of Object.keys(data.entries)) {
-      const entry = data.entries[uid];
+    for (const entry of entries) {
       if (entry.extra && entry.extra.source === 'storyshare_workshop' && entry.extra.pack_id != null) {
         const packId = entry.extra.pack_id;
         packMap[packId] = (packMap[packId] || 0) + 1;
@@ -400,7 +404,7 @@ async function handleScan(payload) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 订阅 Pack（插入世界书）
+// 订阅 Pack（插入世界书，使用 window.TavernHelper API）
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function handleSubscribe(payload) {
@@ -412,35 +416,24 @@ async function handleSubscribe(payload) {
   }
 
   try {
-    const ctx = getContext?.() ?? SillyTavern;
-    let data = await ctx.loadWorldInfo(worldbookName);
-    if (!data || !data.entries) {
-      data = { entries: {} };
+    const TH = window.TavernHelper;
+    if (!TH) throw new Error('TavernHelper 不可用');
+
+    // 确保世界书存在（不存在则创建）
+    const names = TH.getWorldbookNames();
+    if (!names.includes(worldbookName)) {
+      await TH.createWorldbook(worldbookName);
     }
 
-    // 移除旧条目（幂等）
-    for (const uid of Object.keys(data.entries)) {
-      const entry = data.entries[uid];
-      if (entry.extra && entry.extra.source === 'storyshare_workshop' && entry.extra.pack_id === packId) {
-        delete data.entries[uid];
-      }
-    }
+    // 移除此 pack 的旧条目（幂等）
+    await TH.deleteWorldbookEntries(
+      worldbookName,
+      entry => entry.extra && entry.extra.source === 'storyshare_workshop' && entry.extra.pack_id === packId,
+      { render: 'debounced' }
+    );
 
-    // 插入新条目
-    const existingUids = Object.keys(data.entries).map(Number);
-    let nextUid = existingUids.length > 0 ? Math.max(...existingUids) + 1 : 0;
-
-    for (const entry of entries) {
-      data.entries[nextUid] = entry;
-      nextUid++;
-    }
-
-    await ctx.saveWorldInfo(worldbookName, data, true);
-
-    // 刷新编辑器
-    if (typeof ctx.reloadWorldInfoEditor === 'function') {
-      ctx.reloadWorldInfoEditor(worldbookName);
-    }
+    // 插入新条目（不传 uid，由 TavernHelper 自动分配）
+    await TH.createWorldbookEntries(worldbookName, entries, { render: 'immediate' });
 
     const result = {
       success: true,
@@ -461,7 +454,7 @@ async function handleSubscribe(payload) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 取消订阅 Pack（移除世界书条目）
+// 取消订阅 Pack（移除世界书条目，使用 window.TavernHelper API）
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function handleUnsubscribe(payload) {
@@ -473,29 +466,23 @@ async function handleUnsubscribe(payload) {
   }
 
   try {
-    const ctx = getContext?.() ?? SillyTavern;
-    const data = await ctx.loadWorldInfo(worldbookName);
-    if (!data || !data.entries) {
-      const result = { success: true, message: '世界书为空', removedCount: 0 };
+    const TH = window.TavernHelper;
+    if (!TH) throw new Error('TavernHelper 不可用');
+
+    // 检查世界书是否存在
+    const names = TH.getWorldbookNames();
+    if (!names.includes(worldbookName)) {
+      const result = { success: true, message: '世界书不存在', removedCount: 0 };
       sendResult('workshop_unsubscribe_result', result);
       return result;
     }
 
-    let removedCount = 0;
-    for (const uid of Object.keys(data.entries)) {
-      const entry = data.entries[uid];
-      if (entry.extra && entry.extra.source === 'storyshare_workshop' && entry.extra.pack_id === packId) {
-        delete data.entries[uid];
-        removedCount++;
-      }
-    }
-
-    if (removedCount > 0) {
-      await ctx.saveWorldInfo(worldbookName, data, true);
-      if (typeof ctx.reloadWorldInfoEditor === 'function') {
-        ctx.reloadWorldInfoEditor(worldbookName);
-      }
-    }
+    const { deleted_entries } = await TH.deleteWorldbookEntries(
+      worldbookName,
+      entry => entry.extra && entry.extra.source === 'storyshare_workshop' && entry.extra.pack_id === packId,
+      { render: 'immediate' }
+    );
+    const removedCount = deleted_entries.length;
 
     const result = {
       success: true,

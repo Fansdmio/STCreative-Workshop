@@ -2,20 +2,6 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { getWorldbookName, saveWorldbookName } from '@/config/sections'
 
-// WorldbookEntry 位置类型 → SillyTavern 数字映射
-const POSITION_MAP = {
-  before_character_definition: 0,
-  after_character_definition: 1,
-  before_example_messages: 2,
-  after_example_messages: 3,
-  before_author_note: 4,
-  after_author_note: 5,
-  at_depth: 6,
-}
-
-const LOGIC_MAP = { and_any: 0, not_all: 1, not_any: 2, and_all: 3 }
-const ROLE_MAP = { system: 0, user: 1, assistant: 2 }
-
 // 检测 SillyTavern 环境（直接嵌入 iframe 模式）
 function isSillyTavernEnv() {
   return typeof window !== 'undefined' && typeof window.SillyTavern !== 'undefined'
@@ -26,30 +12,40 @@ function isFromStExtension() {
   return typeof window !== 'undefined' && window.opener && window.opener !== window
 }
 
-// 将 workshop entry 转换为 ST FlattenedWorldInfoEntry 格式
-function toStEntry(entry, uid, packId) {
+// 将 workshop entry 转换为 TavernHelper WorldbookEntry 格式（不含 uid，由 TH 自动分配）
+function toStEntry(entry, packId) {
   return {
-    uid,
-    comment: entry.name,
-    content: entry.content,
-    disable: !entry.enabled,
-    constant: entry.strategy_type === 'constant',
-    selective: entry.strategy_type === 'selective',
-    key: entry.keys || [],
-    keysecondary: entry.keys_secondary || [],
-    selectiveLogic: LOGIC_MAP[entry.keys_secondary_logic] ?? 0,
-    scanDepth: entry.scan_depth === 'same_as_global' ? null : parseInt(entry.scan_depth),
-    position: POSITION_MAP[entry.position_type] ?? 1,
-    order: entry.position_order,
-    depth: entry.position_depth,
-    role: ROLE_MAP[entry.position_role] ?? 0,
-    probability: entry.probability,
-    excludeRecursion: entry.recursion_prevent_incoming,
-    preventRecursion: entry.recursion_prevent_outgoing,
-    delayUntilRecursion: entry.recursion_delay_until != null,
-    sticky: entry.effect_sticky != null ? parseInt(entry.effect_sticky) : null,
-    cooldown: entry.effect_cooldown != null ? parseInt(entry.effect_cooldown) : null,
-    delay: entry.effect_delay != null ? parseInt(entry.effect_delay) : null,
+    name: entry.name,
+    enabled: !!entry.enabled,
+    strategy: {
+      type: entry.strategy_type || 'selective',
+      keys: entry.keys || [],
+      keys_secondary: {
+        logic: entry.keys_secondary_logic || 'and_any',
+        keys: entry.keys_secondary || [],
+      },
+      scan_depth: entry.scan_depth === 'same_as_global' || entry.scan_depth == null
+        ? 'same_as_global'
+        : Number(entry.scan_depth),
+    },
+    position: {
+      type: entry.position_type || 'after_character_definition',
+      role: entry.position_role || 'system',
+      depth: entry.position_depth != null ? Number(entry.position_depth) : 4,
+      order: entry.position_order != null ? Number(entry.position_order) : 100,
+    },
+    content: entry.content || '',
+    probability: entry.probability != null ? Number(entry.probability) : 100,
+    recursion: {
+      prevent_incoming: !!entry.recursion_prevent_incoming,
+      prevent_outgoing: !!entry.recursion_prevent_outgoing,
+      delay_until: entry.recursion_delay_until != null ? Number(entry.recursion_delay_until) : null,
+    },
+    effect: {
+      sticky: entry.effect_sticky != null ? Number(entry.effect_sticky) : null,
+      cooldown: entry.effect_cooldown != null ? Number(entry.effect_cooldown) : null,
+      delay: entry.effect_delay != null ? Number(entry.effect_delay) : null,
+    },
     extra: {
       workshop_entry_id: entry.id,
       pack_id: packId,
@@ -713,14 +709,17 @@ export const useWorkshopStore = defineStore('workshop', () => {
     try {
       // 直接嵌入模式
       if (isSillyTavernEnv()) {
-        const data = await window.SillyTavern.loadWorldInfo(worldbookName)
-        if (!data || !data.entries) {
+        const TH = window.TavernHelper
+        if (!TH) return { success: false, message: 'TavernHelper 不可用', packIds: [], entryCountMap: {} }
+
+        const names = TH.getWorldbookNames()
+        if (!names.includes(worldbookName)) {
           return { success: true, packIds: [], entryCountMap: {} }
         }
 
+        const entries = await TH.getWorldbook(worldbookName)
         const packMap = {}
-        for (const uid of Object.keys(data.entries)) {
-          const e = data.entries[uid]
+        for (const e of entries) {
           if (e.extra && e.extra.source === 'storyshare_workshop' && e.extra.pack_id != null) {
             const packId = e.extra.pack_id
             packMap[packId] = (packMap[packId] || 0) + 1
@@ -756,33 +755,26 @@ export const useWorkshopStore = defineStore('workshop', () => {
     }
 
     try {
-      let data = await window.SillyTavern.loadWorldInfo(worldbookName)
-      if (!data || !data.entries) data = { entries: {} }
+      const TH = window.TavernHelper
+      if (!TH) return { success: false, message: 'TavernHelper 不可用' }
+
+      // 确保世界书存在（不存在则创建）
+      const names = TH.getWorldbookNames()
+      if (!names.includes(worldbookName)) {
+        await TH.createWorldbook(worldbookName)
+      }
 
       // 移除旧条目（幂等）
-      for (const uid of Object.keys(data.entries)) {
-        const e = data.entries[uid]
-        if (e.extra && e.extra.source === 'storyshare_workshop' && e.extra.pack_id === packId) {
-          delete data.entries[uid]
-        }
-      }
+      await TH.deleteWorldbookEntries(
+        worldbookName,
+        e => e.extra && e.extra.source === 'storyshare_workshop' && e.extra.pack_id === packId,
+        { render: 'debounced' }
+      )
 
       // 插入新条目
-      const existingUids = Object.keys(data.entries).map(Number)
-      let nextUid = existingUids.length > 0 ? Math.max(...existingUids) + 1 : 0
+      await TH.createWorldbookEntries(worldbookName, entries, { render: 'immediate' })
 
-      for (const entry of entries) {
-        data.entries[nextUid] = entry
-        nextUid++
-      }
-
-      await window.SillyTavern.saveWorldInfo(worldbookName, data, true)
       subscribedPacksInST.value = { ...subscribedPacksInST.value, [packId]: true }
-
-      if (typeof window.SillyTavern.reloadWorldInfoEditor === 'function') {
-        window.SillyTavern.reloadWorldInfoEditor(worldbookName)
-      }
-
       stNotification.value = { type: 'success', message: `已订阅「${packTitle}」` }
       return { success: true, message: `已将「${packTitle}」的 ${entries.length} 条条目插入世界书` }
     } catch (err) {
@@ -804,26 +796,20 @@ export const useWorkshopStore = defineStore('workshop', () => {
     }
 
     try {
-      const data = await window.SillyTavern.loadWorldInfo(worldbookName)
-      if (!data || !data.entries) {
-        return { success: true, message: '世界书为空', removedCount: 0 }
+      const TH = window.TavernHelper
+      if (!TH) return { success: false, message: 'TavernHelper 不可用', removedCount: 0 }
+
+      const names = TH.getWorldbookNames()
+      if (!names.includes(worldbookName)) {
+        return { success: true, message: '世界书不存在', removedCount: 0 }
       }
 
-      let removedCount = 0
-      for (const uid of Object.keys(data.entries)) {
-        const e = data.entries[uid]
-        if (e.extra && e.extra.source === 'storyshare_workshop' && e.extra.pack_id === packId) {
-          delete data.entries[uid]
-          removedCount++
-        }
-      }
-
-      if (removedCount > 0) {
-        await window.SillyTavern.saveWorldInfo(worldbookName, data, true)
-        if (typeof window.SillyTavern.reloadWorldInfoEditor === 'function') {
-          window.SillyTavern.reloadWorldInfoEditor(worldbookName)
-        }
-      }
+      const { deleted_entries } = await TH.deleteWorldbookEntries(
+        worldbookName,
+        e => e.extra && e.extra.source === 'storyshare_workshop' && e.extra.pack_id === packId,
+        { render: 'immediate' }
+      )
+      const removedCount = deleted_entries.length
 
       const updated = { ...subscribedPacksInST.value }
       delete updated[packId]
@@ -867,8 +853,8 @@ export const useWorkshopStore = defineStore('workshop', () => {
         entries = json.data.entries || []
       }
 
-      // 转换为 ST 格式
-      const stEntries = entries.map((entry, idx) => toStEntry(entry, idx, pack.id))
+      // 转换为 TavernHelper WorldbookEntry 格式（不含 uid）
+      const stEntries = entries.map(entry => toStEntry(entry, pack.id))
 
       const result = await _sendW2ECommand('subscribe', {
         packId: pack.id,
@@ -931,14 +917,18 @@ export const useWorkshopStore = defineStore('workshop', () => {
     if (!isSillyTavernEnv()) return
     stLoading.value = true
     try {
-      const data = await window.SillyTavern.loadWorldInfo(worldbookName.value)
-      if (!data || !data.entries) {
+      const TH = window.TavernHelper
+      if (!TH) return
+
+      const names = TH.getWorldbookNames()
+      if (!names.includes(worldbookName.value)) {
         subscribedPacksInST.value = {}
         return
       }
+
+      const entries = await TH.getWorldbook(worldbookName.value)
       const map = {}
-      for (const uid of Object.keys(data.entries)) {
-        const e = data.entries[uid]
+      for (const e of entries) {
         if (e.extra && e.extra.source === 'storyshare_workshop' && e.extra.pack_id != null) {
           map[e.extra.pack_id] = true
         }
@@ -951,11 +941,14 @@ export const useWorkshopStore = defineStore('workshop', () => {
     }
   }
 
-  // 将整个 pack 的所有条目插入到 ST 世界书
+  // 将整个 pack 的所有条目插入到 ST 世界书（TavernHelper API）
   async function insertPackToWorldbook(pack) {
     if (!isSillyTavernEnv()) return false
     stLoading.value = true
     try {
+      const TH = window.TavernHelper
+      if (!TH) throw new Error('TavernHelper 不可用')
+
       // 获取最新 pack 数据（含所有条目）
       let entries = pack.entries
       if (!entries) {
@@ -965,32 +958,24 @@ export const useWorkshopStore = defineStore('workshop', () => {
         entries = json.data.entries || []
       }
 
-      let data = await window.SillyTavern.loadWorldInfo(worldbookName.value)
-      if (!data || !data.entries) data = { entries: {} }
+      // 确保世界书存在
+      const names = TH.getWorldbookNames()
+      if (!names.includes(worldbookName.value)) {
+        await TH.createWorldbook(worldbookName.value)
+      }
 
       // 先移除此 pack 的旧条目（幂等操作）
-      for (const uid of Object.keys(data.entries)) {
-        const e = data.entries[uid]
-        if (e.extra && e.extra.source === 'storyshare_workshop' && e.extra.pack_id === pack.id) {
-          delete data.entries[uid]
-        }
-      }
+      await TH.deleteWorldbookEntries(
+        worldbookName.value,
+        e => e.extra && e.extra.source === 'storyshare_workshop' && e.extra.pack_id === pack.id,
+        { render: 'debounced' }
+      )
 
-      // 插入新条目
-      const existingUids = Object.keys(data.entries).map(Number)
-      let nextUid = existingUids.length > 0 ? Math.max(...existingUids) + 1 : 0
+      // 插入新条目（TavernHelper 自动分配 uid）
+      const stEntries = entries.map(entry => toStEntry(entry, pack.id))
+      await TH.createWorldbookEntries(worldbookName.value, stEntries, { render: 'immediate' })
 
-      for (const entry of entries) {
-        data.entries[nextUid] = toStEntry(entry, nextUid, pack.id)
-        nextUid++
-      }
-
-      await window.SillyTavern.saveWorldInfo(worldbookName.value, data, true)
       subscribedPacksInST.value = { ...subscribedPacksInST.value, [pack.id]: true }
-
-      if (typeof window.SillyTavern.reloadWorldInfoEditor === 'function') {
-        window.SillyTavern.reloadWorldInfoEditor(worldbookName.value)
-      }
       return true
     } catch (err) {
       console.error('[Workshop] 插入 Pack 到世界书失败:', err)
@@ -1001,34 +986,26 @@ export const useWorkshopStore = defineStore('workshop', () => {
     }
   }
 
-  // 从 ST 世界书中移除某个 pack 的所有条目
+  // 从 ST 世界书中移除某个 pack 的所有条目（TavernHelper API）
   async function removePackFromWorldbook(packId) {
     if (!isSillyTavernEnv()) return false
     stLoading.value = true
     try {
-      const data = await window.SillyTavern.loadWorldInfo(worldbookName.value)
-      if (!data || !data.entries) return false
+      const TH = window.TavernHelper
+      if (!TH) throw new Error('TavernHelper 不可用')
 
-      let removed = false
-      for (const uid of Object.keys(data.entries)) {
-        const e = data.entries[uid]
-        if (e.extra && e.extra.source === 'storyshare_workshop' && e.extra.pack_id === packId) {
-          delete data.entries[uid]
-          removed = true
-        }
-      }
+      const names = TH.getWorldbookNames()
+      if (!names.includes(worldbookName.value)) return false
 
-      if (removed) {
-        await window.SillyTavern.saveWorldInfo(worldbookName.value, data, true)
-      }
+      await TH.deleteWorldbookEntries(
+        worldbookName.value,
+        e => e.extra && e.extra.source === 'storyshare_workshop' && e.extra.pack_id === packId,
+        { render: 'immediate' }
+      )
 
       const updated = { ...subscribedPacksInST.value }
       delete updated[packId]
       subscribedPacksInST.value = updated
-
-      if (typeof window.SillyTavern.reloadWorldInfoEditor === 'function') {
-        window.SillyTavern.reloadWorldInfoEditor(worldbookName.value)
-      }
       return true
     } catch (err) {
       console.error('[Workshop] 移除 Pack 世界书条目失败:', err)
