@@ -113,8 +113,19 @@ function openWorkshop() {
     return;
   }
 
-  // 等待工坊窗口加载完成后，主动发送连接信息
-  // 使用轮询方式发送 opener_ref，确保工坊窗口接收到
+  // 发送 HTTP ping 命令，通知工坊建立连接
+  setTimeout(() => {
+    sendHttpCommand('ping', {})
+      .then(() => {
+        console.log('[StoryShare Workshop] HTTP 连接已建立');
+        toastr.success('工坊已连接', 'StoryShare 工坊');
+      })
+      .catch(err => {
+        console.error('[StoryShare Workshop] HTTP 连接失败:', err);
+      });
+  }, 2000); // 等待 2 秒让工坊页面加载并启动轮询
+
+  // 保留 postMessage 发送（备用方案，如果同源则可能成功）
   let pingAttempts = 0;
   const pingInterval = setInterval(() => {
     if (workshopWindow.closed) {
@@ -138,6 +149,77 @@ function openWorkshop() {
       clearInterval(pingInterval);
     }
   }, 500);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HTTP 桥接通信
+// ═══════════════════════════════════════════════════════════════════════════
+
+// 从工坊 URL 中提取 API 基础 URL
+function getApiBaseUrl() {
+  const workshopUrl = extension_settings[EXTENSION_NAME].workshopUrl;
+  if (!workshopUrl) return null;
+  
+  try {
+    const url = new URL(workshopUrl);
+    return `${url.protocol}//${url.host}`;
+  } catch (err) {
+    console.error('[StoryShare Workshop] 无法解析工坊 URL:', err);
+    return null;
+  }
+}
+
+// 发送 HTTP 命令到后端桥接
+async function sendHttpCommand(type, payload) {
+  const baseUrl = getApiBaseUrl();
+  if (!baseUrl) {
+    throw new Error('无法获取 API 基础 URL');
+  }
+
+  console.log('[StoryShare Workshop] 发送 HTTP 命令:', type);
+
+  // 1. 发送命令
+  const cmdResponse = await fetch(`${baseUrl}/api/st-bridge/command`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type, payload }),
+  });
+
+  if (!cmdResponse.ok) {
+    throw new Error(`发送命令失败: ${cmdResponse.status}`);
+  }
+
+  const cmdData = await cmdResponse.json();
+  if (!cmdData.success) {
+    throw new Error('发送命令失败');
+  }
+
+  const commandId = cmdData.commandId;
+  console.log('[StoryShare Workshop] 命令已发送:', commandId);
+
+  // 2. 轮询获取响应（最多 30 秒）
+  const startTime = Date.now();
+  const timeout = 30000;
+
+  while (Date.now() - startTime < timeout) {
+    await new Promise(resolve => setTimeout(resolve, 1000)); // 每秒轮询一次
+
+    const resResponse = await fetch(`${baseUrl}/api/st-bridge/response/${commandId}`);
+    if (!resResponse.ok) {
+      console.error('[StoryShare Workshop] 获取响应失败:', resResponse.status);
+      continue;
+    }
+
+    const resData = await resResponse.json();
+    if (resData.success && resData.response) {
+      console.log('[StoryShare Workshop] 收到响应:', resData.response);
+      return resData.response;
+    }
+
+    // 还在等待
+  }
+
+  throw new Error('等待响应超时（30秒）');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -180,7 +262,7 @@ async function handleWorkshopMessage(event) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 扫描已订阅的 Pack
+// 扫描已订阅的 Pack（修改为同时支持 postMessage 和 HTTP）
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function handleScan(payload) {
@@ -208,10 +290,15 @@ async function handleScan(payload) {
     }
 
     const packIds = Object.keys(packMap).map(Number);
-    sendResult('workshop_scan_result', { success: true, packIds, entryCountMap: packMap });
+    const result = { success: true, packIds, entryCountMap: packMap };
+    
+    sendResult('workshop_scan_result', result);
+    return result; // 同时返回，以便 HTTP 调用使用
   } catch (err) {
     console.error('[StoryShare Workshop] 扫描失败:', err);
-    sendResult('workshop_scan_result', { success: false, packIds: [], entryCountMap: {} });
+    const result = { success: false, packIds: [], entryCountMap: {} };
+    sendResult('workshop_scan_result', result);
+    return result;
   }
 }
 
@@ -222,8 +309,9 @@ async function handleScan(payload) {
 async function handleSubscribe(payload) {
   const { packId, packTitle, worldbookName, entries } = payload;
   if (!packId || !worldbookName || !entries) {
-    sendResult('workshop_subscribe_result', { success: false, message: '缺少必要参数' });
-    return;
+    const result = { success: false, message: '缺少必要参数' };
+    sendResult('workshop_subscribe_result', result);
+    return result;
   }
 
   try {
@@ -257,16 +345,21 @@ async function handleSubscribe(payload) {
       ctx.reloadWorldInfoEditor(worldbookName);
     }
 
-    sendResult('workshop_subscribe_result', {
+    const result = {
       success: true,
       message: `已将「${packTitle}」的 ${entries.length} 条条目插入世界书「${worldbookName}」`,
-    });
-
+    };
+    
+    sendResult('workshop_subscribe_result', result);
     toastr.success(`已订阅「${packTitle}」`, 'StoryShare 工坊');
+    
+    return result;
   } catch (err) {
     console.error('[StoryShare Workshop] 订阅失败:', err);
-    sendResult('workshop_subscribe_result', { success: false, message: '插入世界书失败：' + err.message });
+    const result = { success: false, message: '插入世界书失败：' + err.message };
+    sendResult('workshop_subscribe_result', result);
     toastr.error('订阅失败', 'StoryShare 工坊');
+    return result;
   }
 }
 
@@ -277,16 +370,18 @@ async function handleSubscribe(payload) {
 async function handleUnsubscribe(payload) {
   const { packId, worldbookName } = payload;
   if (packId == null || !worldbookName) {
-    sendResult('workshop_unsubscribe_result', { success: false, message: '缺少必要参数', removedCount: 0 });
-    return;
+    const result = { success: false, message: '缺少必要参数', removedCount: 0 };
+    sendResult('workshop_unsubscribe_result', result);
+    return result;
   }
 
   try {
     const ctx = getContext?.() ?? SillyTavern;
     const data = await ctx.loadWorldInfo(worldbookName);
     if (!data || !data.entries) {
-      sendResult('workshop_unsubscribe_result', { success: true, message: '世界书为空', removedCount: 0 });
-      return;
+      const result = { success: true, message: '世界书为空', removedCount: 0 };
+      sendResult('workshop_unsubscribe_result', result);
+      return result;
     }
 
     let removedCount = 0;
@@ -305,21 +400,26 @@ async function handleUnsubscribe(payload) {
       }
     }
 
-    sendResult('workshop_unsubscribe_result', {
+    const result = {
       success: true,
       message: `已从世界书移除 ${removedCount} 条条目`,
       removedCount,
-    });
+    };
 
+    sendResult('workshop_unsubscribe_result', result);
     toastr.success(`已取消订阅`, 'StoryShare 工坊');
+    
+    return result;
   } catch (err) {
     console.error('[StoryShare Workshop] 取消订阅失败:', err);
-    sendResult('workshop_unsubscribe_result', {
+    const result = {
       success: false,
       message: '移除世界书条目失败：' + err.message,
       removedCount: 0,
-    });
+    };
+    sendResult('workshop_unsubscribe_result', result);
     toastr.error('取消订阅失败', 'StoryShare 工坊');
+    return result;
   }
 }
 

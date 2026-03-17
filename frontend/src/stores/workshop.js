@@ -81,6 +81,8 @@ export const useWorkshopStore = defineStore('workshop', () => {
   let _listenerAdded = false
   let _requestCounter = 0
   let _stExtensionWindow = null // ST 扩展窗口引用（用于跨域场景）
+  let _httpPolling = false // HTTP 轮询是否正在运行
+  let _httpPollingAbort = null // AbortController for HTTP polling
 
   // ── 工坊列表状态 ─────────────────────────────────────────────
   const workshops = ref([])
@@ -541,25 +543,264 @@ export const useWorkshopStore = defineStore('workshop', () => {
       return // 已连接，幂等
     }
 
-    // 始终设置监听器，等待扩展发送 opener 引用
-    console.log('[Workshop] 设置消息监听器，等待 ST 扩展连接...')
+    // 始终设置监听器，等待扩展发送 opener 引用（备用方案）
+    console.log('[Workshop] 设置消息监听器...')
     _setupMessageListener()
     
-    // 如果有 window.opener，尝试发送 ping
+    // 如果有 window.opener，尝试发送 ping（备用方案）
     if (window.opener && window.opener !== window) {
       try {
         console.log('[Workshop] 检测到 window.opener，发送 ping...')
         window.opener.postMessage({ type: 'workshop_ping', payload: {} }, '*')
-        console.log('[Workshop] ping 已发送，等待 pong...')
-        // 等待 500ms 让 pong 返回
-        await new Promise((resolve) => setTimeout(resolve, 500))
-        console.log('[Workshop] 握手完成，stConnected:', stConnected.value)
       } catch (err) {
-        console.error('[Workshop] ST 扩展握手失败:', err)
+        console.error('[Workshop] postMessage 失败:', err)
       }
-    } else {
-      console.log('[Workshop] 无 window.opener，等待扩展主动发送引用...')
-      // 等待扩展发送 st_extension_opener 消息
+    }
+
+    // 启动 HTTP 轮询（主要方案）
+    console.log('[Workshop] 启动 HTTP 轮询...')
+    _startHttpPolling()
+  }
+
+  // 启动 HTTP 长轮询，从后端获取扩展发送的命令
+  function _startHttpPolling() {
+    if (_httpPolling) {
+      console.log('[Workshop] HTTP 轮询已在运行')
+      return
+    }
+
+    _httpPolling = true
+    _httpPollingAbort = new AbortController()
+    console.log('[Workshop] HTTP 轮询已启动')
+
+    const poll = async () => {
+      while (_httpPolling) {
+        try {
+          const response = await fetch('/api/st-bridge/poll', {
+            signal: _httpPollingAbort.signal,
+            credentials: 'include',
+          })
+
+          if (!response.ok) {
+            console.error('[Workshop] 轮询失败:', response.status)
+            await new Promise(resolve => setTimeout(resolve, 5000))
+            continue
+          }
+
+          const data = await response.json()
+          
+          if (data.success && data.command) {
+            console.log('[Workshop] 收到 HTTP 命令:', data.command)
+            await _handleHttpCommand(data.command)
+          }
+          
+          // 继续下一次轮询
+        } catch (err) {
+          if (err.name === 'AbortError') {
+            console.log('[Workshop] HTTP 轮询已停止')
+            break
+          }
+          console.error('[Workshop] 轮询出错:', err)
+          await new Promise(resolve => setTimeout(resolve, 5000))
+        }
+      }
+    }
+
+    poll()
+  }
+
+  // 停止 HTTP 轮询
+  function _stopHttpPolling() {
+    if (_httpPollingAbort) {
+      _httpPollingAbort.abort()
+    }
+    _httpPolling = false
+    console.log('[Workshop] HTTP 轮询已停止')
+  }
+
+  // 处理从 HTTP 桥接收到的命令
+  async function _handleHttpCommand(command) {
+    const { id, type, payload } = command
+
+    console.log('[Workshop] 处理命令:', type, id)
+
+    let result = { success: false, message: '未知命令' }
+
+    try {
+      switch (type) {
+        case 'ping':
+          // 握手
+          stConnected.value = true
+          console.log('[Workshop] 已连接到 ST 扩展（HTTP）')
+          result = { success: true, connected: true }
+          break
+
+        case 'scan':
+          result = await _executeScan(payload)
+          break
+
+        case 'subscribe':
+          result = await _executeSubscribe(payload)
+          break
+
+        case 'unsubscribe':
+          result = await _executeUnsubscribe(payload)
+          break
+
+        default:
+          console.warn('[Workshop] 未知命令类型:', type)
+      }
+    } catch (err) {
+      console.error('[Workshop] 执行命令失败:', err)
+      result = { success: false, message: err.message }
+    }
+
+    // 提交结果到后端
+    try {
+      await fetch('/api/st-bridge/response', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ commandId: id, result }),
+      })
+      console.log('[Workshop] 已提交命令结果:', id)
+    } catch (err) {
+      console.error('[Workshop] 提交结果失败:', err)
+    }
+  }
+
+  // 执行扫描
+  async function _executeScan(payload) {
+    const { worldbookName } = payload
+    if (!worldbookName) {
+      return { success: false, packIds: [], entryCountMap: {} }
+    }
+
+    try {
+      // 直接嵌入模式
+      if (isSillyTavernEnv()) {
+        const data = await window.SillyTavern.loadWorldInfo(worldbookName)
+        if (!data || !data.entries) {
+          return { success: true, packIds: [], entryCountMap: {} }
+        }
+
+        const packMap = {}
+        for (const uid of Object.keys(data.entries)) {
+          const e = data.entries[uid]
+          if (e.extra && e.extra.source === 'storyshare_workshop' && e.extra.pack_id != null) {
+            const packId = e.extra.pack_id
+            packMap[packId] = (packMap[packId] || 0) + 1
+          }
+        }
+
+        const packIds = Object.keys(packMap).map(Number)
+        const map = {}
+        for (const packId of packIds) {
+          map[packId] = true
+        }
+        subscribedPacksInST.value = map
+
+        return { success: true, packIds, entryCountMap: packMap }
+      }
+
+      return { success: false, message: '非 SillyTavern 环境' }
+    } catch (err) {
+      console.error('[Workshop] 扫描失败:', err)
+      return { success: false, packIds: [], entryCountMap: {} }
+    }
+  }
+
+  // 执行订阅
+  async function _executeSubscribe(payload) {
+    const { packId, packTitle, worldbookName, entries } = payload
+    if (!packId || !worldbookName || !entries) {
+      return { success: false, message: '缺少必要参数' }
+    }
+
+    if (!isSillyTavernEnv()) {
+      return { success: false, message: '非 SillyTavern 环境' }
+    }
+
+    try {
+      let data = await window.SillyTavern.loadWorldInfo(worldbookName)
+      if (!data || !data.entries) data = { entries: {} }
+
+      // 移除旧条目（幂等）
+      for (const uid of Object.keys(data.entries)) {
+        const e = data.entries[uid]
+        if (e.extra && e.extra.source === 'storyshare_workshop' && e.extra.pack_id === packId) {
+          delete data.entries[uid]
+        }
+      }
+
+      // 插入新条目
+      const existingUids = Object.keys(data.entries).map(Number)
+      let nextUid = existingUids.length > 0 ? Math.max(...existingUids) + 1 : 0
+
+      for (const entry of entries) {
+        data.entries[nextUid] = entry
+        nextUid++
+      }
+
+      await window.SillyTavern.saveWorldInfo(worldbookName, data, true)
+      subscribedPacksInST.value = { ...subscribedPacksInST.value, [packId]: true }
+
+      if (typeof window.SillyTavern.reloadWorldInfoEditor === 'function') {
+        window.SillyTavern.reloadWorldInfoEditor(worldbookName)
+      }
+
+      stNotification.value = { type: 'success', message: `已订阅「${packTitle}」` }
+      return { success: true, message: `已将「${packTitle}」的 ${entries.length} 条条目插入世界书` }
+    } catch (err) {
+      console.error('[Workshop] 订阅失败:', err)
+      stNotification.value = { type: 'error', message: '订阅失败' }
+      return { success: false, message: '插入世界书失败：' + err.message }
+    }
+  }
+
+  // 执行取消订阅
+  async function _executeUnsubscribe(payload) {
+    const { packId, worldbookName } = payload
+    if (packId == null || !worldbookName) {
+      return { success: false, message: '缺少必要参数', removedCount: 0 }
+    }
+
+    if (!isSillyTavernEnv()) {
+      return { success: false, message: '非 SillyTavern 环境', removedCount: 0 }
+    }
+
+    try {
+      const data = await window.SillyTavern.loadWorldInfo(worldbookName)
+      if (!data || !data.entries) {
+        return { success: true, message: '世界书为空', removedCount: 0 }
+      }
+
+      let removedCount = 0
+      for (const uid of Object.keys(data.entries)) {
+        const e = data.entries[uid]
+        if (e.extra && e.extra.source === 'storyshare_workshop' && e.extra.pack_id === packId) {
+          delete data.entries[uid]
+          removedCount++
+        }
+      }
+
+      if (removedCount > 0) {
+        await window.SillyTavern.saveWorldInfo(worldbookName, data, true)
+        if (typeof window.SillyTavern.reloadWorldInfoEditor === 'function') {
+          window.SillyTavern.reloadWorldInfoEditor(worldbookName)
+        }
+      }
+
+      const updated = { ...subscribedPacksInST.value }
+      delete updated[packId]
+      subscribedPacksInST.value = updated
+
+      stNotification.value = { type: 'success', message: '已取消订阅' }
+      return { success: true, message: `已从世界书移除 ${removedCount} 条条目`, removedCount }
+    } catch (err) {
+      console.error('[Workshop] 取消订阅失败:', err)
+      stNotification.value = { type: 'error', message: '取消订阅失败' }
+      return { success: false, message: '移除世界书条目失败：' + err.message, removedCount: 0 }
     }
   }
 
@@ -787,35 +1028,24 @@ export const useWorkshopStore = defineStore('workshop', () => {
     // ST 扩展状态
     stConnected,
     stNotification,
-    // 工具
-    isSillyTavernEnv,
-    isFromStExtension,
-    // 世界书名称
-    setWorldbookName,
-    loadWorldbookForSection,
-    // 工坊 API
-    fetchWorkshops,
-    createWorkshop,
-    updateWorkshop,
-    // Pack API
+    // 方法
     fetchPacks,
-    fetchPack,
+    fetchPackDetail,
+    fetchWorkshops,
+    toggleLike,
+    toggleSubscribe,
     createPack,
     updatePack,
     deletePack,
-    // 互动
-    toggleLike,
-    toggleSubscribe,
-    // 条目 API
-    fetchEntry,
     createEntry,
     updateEntry,
     deleteEntry,
-    // ST 操作
     scanSubscribedPacks,
     insertPackToWorldbook,
     removePackFromWorldbook,
-    // ST 扩展模式
+    setWorldbookName,
+    loadWorldbookForSection,
     initStExtensionMode,
+    stopHttpPolling: _stopHttpPolling, // 暴露停止轮询方法
   }
 })
