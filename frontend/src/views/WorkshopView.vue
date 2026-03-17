@@ -100,6 +100,15 @@ onMounted(() => {
   }
 })
 
+// ST 扩展通知 toast（4.5s 自动消失）
+watch(() => workshopStore.stNotification, (notif) => {
+  if (notif) {
+    setTimeout(() => {
+      workshopStore.stNotification = null
+    }, 4500)
+  }
+})
+
 // ── 数据加载 ─────────────────────────────────────────────────────────
 const isStEnv = computed(() => workshopStore.isSillyTavernEnv())
 
@@ -124,6 +133,8 @@ watch(workshopSlug, (newSlug) => {
 })
 
 onMounted(async () => {
+  // ST 扩展模式初始化
+  await workshopStore.initStExtensionMode()
   // 先加载工坊列表（loadWorldbookForSection 需要 workshops 数据作 fallback）
   await workshopStore.fetchWorkshops()
   if (workshopSlug.value) workshopStore.loadWorldbookForSection(workshopSlug.value)
@@ -161,6 +172,26 @@ const newModRoute = computed(() => ({
         style="background:#FFF7ED; color:#EA580C; border:2px solid #FDBA74; box-shadow:3px 3px 0 #FDBA74;"
       >
         请先登录后再操作
+      </div>
+    </Transition>
+
+    <!-- ST 扩展通知 toast -->
+    <Transition
+      enter-active-class="transition duration-300 ease-out"
+      enter-from-class="opacity-0 -translate-y-3"
+      enter-to-class="opacity-100 translate-y-0"
+      leave-active-class="transition duration-200 ease-in"
+      leave-from-class="opacity-100"
+      leave-to-class="opacity-0"
+    >
+      <div
+        v-if="workshopStore.stNotification"
+        class="fixed top-20 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-xl text-sm font-bold shadow-lg max-w-md"
+        :style="workshopStore.stNotification?.type === 'success'
+          ? 'background:#DCFCE7; color:#16A34A; border:2px solid #22C55E; box-shadow:3px 3px 0 #22C55E;'
+          : 'background:#FEF2F2; color:#EF4444; border:2px solid #FECACA; box-shadow:3px 3px 0 #FECACA;'"
+      >
+        {{ workshopStore.stNotification?.message }}
       </div>
     </Transition>
 
@@ -251,7 +282,24 @@ const newModRoute = computed(() => ({
           <button class="btn-secondary text-xs py-1 px-3" @click="cancelEditWorldbook">取消</button>
         </div>
       </template>
-      <span v-if="!isStEnv" class="text-xs w-full sm:w-auto" style="color:#FBBF24; font-family:'Nunito',sans-serif;">
+      <!-- ST 环境状态 -->
+      <div v-if="workshopStore.isFromStExtension()" class="flex items-center gap-2 flex-wrap w-full sm:w-auto">
+        <span
+          v-if="workshopStore.stConnected"
+          class="text-xs font-bold px-2.5 py-1 rounded-full"
+          style="background:#DCFCE7; color:#16A34A; border:1.5px solid #22C55E; font-family:'Nunito',sans-serif;"
+        >
+          ⚡ 已连接到 SillyTavern 扩展
+        </span>
+        <span
+          v-else
+          class="text-xs font-bold px-2.5 py-1 rounded-full"
+          style="background:#FEF2F2; color:#EF4444; border:1.5px solid #FECACA; font-family:'Nunito',sans-serif;"
+        >
+          ⚠ 未连接到 SillyTavern 扩展
+        </span>
+      </div>
+      <span v-else-if="!isStEnv" class="text-xs w-full sm:w-auto" style="color:#FBBF24; font-family:'Nunito',sans-serif;">
         （非 SillyTavern 环境，订阅仅计数）
       </span>
     </div>

@@ -29,6 +29,7 @@ function goBackToWorkshop() {
 }
 
 onMounted(async () => {
+  await workshopStore.initStExtensionMode()
   const result = await workshopStore.fetchPack(packId.value)
   if (!result) {
     router.push({ name: 'workshop' })
@@ -67,10 +68,39 @@ async function handleDeleteEntry(entryId) {
 function strategyLabel(type) {
   return type === 'constant' ? '🔵 蓝灯（常驻）' : '🟢 绿灯（触发词）'
 }
+
+// ST 扩展通知 toast（4.5s 自动消失）
+watch(() => workshopStore.stNotification, (notif) => {
+  if (notif) {
+    setTimeout(() => {
+      workshopStore.stNotification = null
+    }, 4500)
+  }
+})
 </script>
 
 <template>
   <div class="page-container py-8 max-w-3xl mx-auto">
+
+    <!-- ST 扩展通知 toast -->
+    <Transition
+      enter-active-class="transition duration-300 ease-out"
+      enter-from-class="opacity-0 -translate-y-3"
+      enter-to-class="opacity-100 translate-y-0"
+      leave-active-class="transition duration-200 ease-in"
+      leave-from-class="opacity-100"
+      leave-to-class="opacity-0"
+    >
+      <div
+        v-if="workshopStore.stNotification"
+        class="fixed top-20 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-xl text-sm font-bold shadow-lg max-w-md"
+        :style="workshopStore.stNotification?.type === 'success'
+          ? 'background:#DCFCE7; color:#16A34A; border:2px solid #22C55E; box-shadow:3px 3px 0 #22C55E;'
+          : 'background:#FEF2F2; color:#EF4444; border:2px solid #FECACA; box-shadow:3px 3px 0 #FECACA;'"
+      >
+        {{ workshopStore.stNotification?.message }}
+      </div>
+    </Transition>
 
     <!-- 返回按钮 -->
     <button class="btn-secondary text-sm mb-6" @click="goBackToWorkshop">
@@ -83,6 +113,18 @@ function strategyLabel(type) {
     </div>
 
     <template v-else-if="pack">
+
+      <!-- ST 扩展连接横幅 -->
+      <div
+        v-if="workshopStore.isFromStExtension() && workshopStore.stConnected"
+        class="mb-4 px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2"
+        style="background:#DCFCE7; color:#16A34A; border:2px solid #22C55E; box-shadow:3px 3px 0 #22C55E;"
+      >
+        <svg class="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"/>
+        </svg>
+        <span>⚡ 已连接到 SillyTavern 扩展 — 订阅将直接插入世界书「{{ workshopStore.worldbookName }}」</span>
+      </div>
 
       <!-- 错误提示 -->
       <div
@@ -152,7 +194,14 @@ function strategyLabel(type) {
               <path d="M18 16V11a6 6 0 0 0-5-5.91V4a1 1 0 0 0-2 0v1.09A6 6 0 0 0 6 11v5l-2 2v1h16v-1l-2-2z"/>
             </svg>
             <span v-if="workshopStore.stLoading">处理中…</span>
-            <span v-else>{{ pack.is_subscribed ? '取消订阅' : '订阅' }}（{{ pack.sub_count }}）</span>
+            <template v-else>
+              <span v-if="workshopStore.isFromStExtension() && workshopStore.stConnected">
+                {{ pack.is_subscribed ? '取消订阅' : '订阅到 ST' }}（{{ pack.sub_count }}）
+              </span>
+              <span v-else>
+                {{ pack.is_subscribed ? '取消订阅' : '订阅' }}（{{ pack.sub_count }}）
+              </span>
+            </template>
           </button>
 
           <!-- 作者操作 -->

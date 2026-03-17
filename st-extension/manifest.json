@@ -1,0 +1,12 @@
+{
+  "display_name": "StoryShare 创意工坊",
+  "loading_order": 1000,
+  "requires": [],
+  "optional": [],
+  "js": "index.js",
+  "css": "style.css",
+  "author": "StoryShare Team",
+  "version": "1.0.0",
+  "homePage": "https://github.com/your-repo/SteamPunkStore_demo",
+  "auto_update": false
+}

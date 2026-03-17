@@ -16,9 +16,14 @@ const POSITION_MAP = {
 const LOGIC_MAP = { and_any: 0, not_all: 1, not_any: 2, and_all: 3 }
 const ROLE_MAP = { system: 0, user: 1, assistant: 2 }
 
-// 检测 SillyTavern 环境
+// 检测 SillyTavern 环境（直接嵌入 iframe 模式）
 function isSillyTavernEnv() {
   return typeof window !== 'undefined' && typeof window.SillyTavern !== 'undefined'
+}
+
+// 检测是否从 ST 扩展弹窗打开（window.opener 存在且非自身）
+function isFromStExtension() {
+  return typeof window !== 'undefined' && window.opener && window.opener !== window
 }
 
 // 将 workshop entry 转换为 ST FlattenedWorldInfoEntry 格式
@@ -68,6 +73,13 @@ export const useWorkshopStore = defineStore('workshop', () => {
   // { [packId]: boolean } — 记录哪些 pack 已插入 ST 世界书
   const subscribedPacksInST = ref({})
   const stLoading = ref(false)
+
+  // ── ST 扩展模式状态 ──────────────────────────────────────────
+  const stConnected = ref(false) // 是否已连接到 ST 扩展
+  const stNotification = ref(null) // { type: 'success'|'error', message: string }
+  let _pending = {} // { requestId: { resolve, reject, timer } } 非响应式
+  let _listenerAdded = false
+  let _requestCounter = 0
 
   // ── 工坊列表状态 ─────────────────────────────────────────────
   const workshops = ref([])
@@ -314,7 +326,17 @@ export const useWorkshopStore = defineStore('workshop', () => {
         currentPack.value.sub_count = json.sub_count
       }
 
-      // ST 操作（仅在 ST 环境中执行）
+      // ST 扩展模式
+      if (isFromStExtension() && stConnected.value) {
+        if (json.subscribed) {
+          await _subscribeViaST(pack)
+        } else {
+          await _unsubscribeViaST(pack.id)
+        }
+        return json
+      }
+
+      // 直接嵌入 ST 模式
       if (isSillyTavernEnv()) {
         if (json.subscribed) {
           await insertPackToWorldbook(pack)
@@ -410,10 +432,195 @@ export const useWorkshopStore = defineStore('workshop', () => {
     }
   }
 
+  // ── ST 扩展模式：postMessage 通信 ──────────────────────────────
+
+  // 设置消息监听器（仅添加一次）
+  function _setupMessageListener() {
+    if (_listenerAdded) return
+    _listenerAdded = true
+
+    window.addEventListener('message', (event) => {
+      // 安全检查：必须来自 opener
+      if (event.source !== window.opener) return
+
+      const { type, success, message, packIds, entryCountMap, removedCount } = event.data || {}
+      if (!type) return
+
+      console.log('[Workshop] 收到 ST 扩展消息:', event.data)
+
+      // 握手响应
+      if (type === 'workshop_pong') {
+        stConnected.value = true
+        return
+      }
+
+      // 扫描结果
+      if (type === 'workshop_scan_result') {
+        const resolve = _pending['scan']?.resolve
+        if (resolve) {
+          clearTimeout(_pending['scan']?.timer)
+          delete _pending['scan']
+          resolve({ success, packIds, entryCountMap })
+        }
+        return
+      }
+
+      // 订阅结果
+      if (type === 'workshop_subscribe_result') {
+        const key = Object.keys(_pending).find(k => k.startsWith('subscribe_'))
+        if (key) {
+          const { resolve } = _pending[key]
+          clearTimeout(_pending[key]?.timer)
+          delete _pending[key]
+          resolve({ success, message })
+        }
+        return
+      }
+
+      // 取消订阅结果
+      if (type === 'workshop_unsubscribe_result') {
+        const key = Object.keys(_pending).find(k => k.startsWith('unsubscribe_'))
+        if (key) {
+          const { resolve } = _pending[key]
+          clearTimeout(_pending[key]?.timer)
+          delete _pending[key]
+          resolve({ success, message, removedCount })
+        }
+        return
+      }
+    })
+  }
+
+  // 发送消息给 ST 扩展（Promise 包装，5s 超时）
+  function _sendToOpener(type, payload, requestKey) {
+    return new Promise((resolve, reject) => {
+      if (!window.opener || window.opener === window) {
+        reject(new Error('未从 ST 扩展打开'))
+        return
+      }
+
+      const timer = setTimeout(() => {
+        delete _pending[requestKey]
+        reject(new Error('请求超时（5秒）'))
+      }, 5000)
+
+      _pending[requestKey] = { resolve, reject, timer }
+      window.opener.postMessage({ type, payload }, '*')
+    })
+  }
+
+  // 初始化 ST 扩展模式（发送 ping，握手）
+  async function initStExtensionMode() {
+    if (!isFromStExtension()) return
+    if (stConnected.value) return // 已连接，幂等
+
+    _setupMessageListener()
+    try {
+      window.opener.postMessage({ type: 'workshop_ping', payload: {} }, '*')
+      // 等待 500ms 让 pong 返回
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    } catch (err) {
+      console.error('[Workshop] ST 扩展握手失败:', err)
+    }
+  }
+
+  // 通过 ST 扩展扫描
+  async function _scanViaST(worldbookName) {
+    try {
+      const result = await _sendToOpener('workshop_scan', { worldbookName }, 'scan')
+      if (result.success) {
+        const map = {}
+        for (const packId of result.packIds || []) {
+          map[packId] = true
+        }
+        subscribedPacksInST.value = map
+      }
+    } catch (err) {
+      console.error('[Workshop] ST 扫描失败:', err)
+      subscribedPacksInST.value = {}
+    }
+  }
+
+  // 通过 ST 扩展订阅
+  async function _subscribeViaST(pack) {
+    const requestKey = `subscribe_${++_requestCounter}`
+    try {
+      // 获取完整条目（如果当前 pack 没有 entries）
+      let entries = pack.entries
+      if (!entries) {
+        const res = await fetch(`/api/workshop/packs/${pack.id}`, { credentials: 'include' })
+        if (!res.ok) throw new Error('获取 Pack 详情失败')
+        const json = await res.json()
+        entries = json.data.entries || []
+      }
+
+      // 转换为 ST 格式
+      const stEntries = entries.map((entry, idx) => toStEntry(entry, idx, pack.id))
+
+      const result = await _sendToOpener(
+        'workshop_subscribe',
+        {
+          packId: pack.id,
+          packTitle: pack.title,
+          worldbookName: worldbookName.value,
+          entries: stEntries,
+        },
+        requestKey
+      )
+
+      if (result.success) {
+        subscribedPacksInST.value = { ...subscribedPacksInST.value, [pack.id]: true }
+        stNotification.value = { type: 'success', message: result.message || '订阅成功' }
+      } else {
+        stNotification.value = { type: 'error', message: result.message || '订阅失败' }
+      }
+      return result.success
+    } catch (err) {
+      console.error('[Workshop] ST 扩展订阅失败:', err)
+      stNotification.value = { type: 'error', message: '订阅失败：' + err.message }
+      return false
+    }
+  }
+
+  // 通过 ST 扩展取消订阅
+  async function _unsubscribeViaST(packId) {
+    const requestKey = `unsubscribe_${++_requestCounter}`
+    try {
+      const result = await _sendToOpener(
+        'workshop_unsubscribe',
+        { packId, worldbookName: worldbookName.value },
+        requestKey
+      )
+
+      if (result.success) {
+        const updated = { ...subscribedPacksInST.value }
+        delete updated[packId]
+        subscribedPacksInST.value = updated
+        stNotification.value = { type: 'success', message: result.message || '取消订阅成功' }
+      } else {
+        stNotification.value = { type: 'error', message: result.message || '取消订阅失败' }
+      }
+      return result.success
+    } catch (err) {
+      console.error('[Workshop] ST 扩展取消订阅失败:', err)
+      stNotification.value = { type: 'error', message: '取消订阅失败：' + err.message }
+      return false
+    }
+  }
+
   // ── SillyTavern 世界书操作 ───────────────────────────────────
 
   // 扫描世界书，构建已订阅 pack 的映射 { packId: true }
   async function scanSubscribedPacks() {
+    // ST 扩展模式
+    if (isFromStExtension() && stConnected.value) {
+      stLoading.value = true
+      await _scanViaST(worldbookName.value)
+      stLoading.value = false
+      return
+    }
+
+    // 直接嵌入 ST 模式
     if (!isSillyTavernEnv()) return
     stLoading.value = true
     try {
@@ -538,8 +745,12 @@ export const useWorkshopStore = defineStore('workshop', () => {
     worldbookName,
     workshops,
     workshopsLoading,
+    // ST 扩展状态
+    stConnected,
+    stNotification,
     // 工具
     isSillyTavernEnv,
+    isFromStExtension,
     // 世界书名称
     setWorldbookName,
     loadWorldbookForSection,
@@ -565,5 +776,7 @@ export const useWorkshopStore = defineStore('workshop', () => {
     scanSubscribedPacks,
     insertPackToWorldbook,
     removePackFromWorldbook,
+    // ST 扩展模式
+    initStExtensionMode,
   }
 })
