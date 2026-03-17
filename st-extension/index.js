@@ -8,7 +8,7 @@
 import { getContext } from '../../../extensions.js';
 
 // ← 部署后将此处替换为你的工坊完整 URL（包含 /StoryShare/ 路径）
-const WORKSHOP_URL = 'https://YOUR_DOMAIN_HERE/StoryShare/';
+const WORKSHOP_URL = 'http://localhost:5173/';
 
 let workshopWindow = null;
 
