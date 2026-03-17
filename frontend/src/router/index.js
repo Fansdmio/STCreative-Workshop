@@ -38,7 +38,6 @@ const routes = [
     path: '/workshop/:packId',
     name: 'workshop-pack-detail',
     component: () => import('@/views/WorkshopPackDetail.vue'),
-    props: true,
   },
   {
     path: '/workshop/:packId/edit',

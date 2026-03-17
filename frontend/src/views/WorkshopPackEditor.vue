@@ -131,9 +131,13 @@ function goBack() {
   if (isEdit.value) {
     router.push({ name: 'workshop-pack-detail', params: { packId: packId.value } })
   } else {
+    // 优先使用来源 slug，若无则从当前选中的工坊 ID 反查 slug
+    const slug = sourceWorkshopSlug.value
+      || workshopStore.workshops.find(w => w.id === form.value.workshop_id)?.slug
+      || null
     router.push({
       name: 'workshop',
-      query: sourceWorkshopSlug.value ? { workshop: sourceWorkshopSlug.value } : {},
+      query: slug ? { workshop: slug } : {},
     })
   }
 }

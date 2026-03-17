@@ -465,7 +465,7 @@ export const useWorkshopStore = defineStore('workshop', () => {
       console.log('[Workshop] 收到消息:', event.data, 'from:', event.origin)
 
       // 特殊处理：接收来自 ST 扩展的 opener 引用
-      if (type === 'st_extension_opener' && source === 'storyshare_extension') {
+      if (type === 'st_extension_opener' && source === 'st_workshop_extension') {
         console.log('[Workshop] 接收到 ST 扩展窗口引用')
         _stExtensionWindow = event.source
         // 立即发送 ping
