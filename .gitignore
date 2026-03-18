@@ -5,7 +5,15 @@ dist
 
 .env
 
-DEPLOY.md
+# 忽略所有md
+*.md
+!AGENTS.md
+!README.md
+
+# 忽略ai创的脚本
+*.ps1
+*.sh
+
 *.jpg
 *.zip
 

@@ -1,0 +1,12 @@
+{
+  "name": "stcreative-workshop-deploy",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "STCreative Workshop 部署脚本",
+  "scripts": {
+    "deploy": "node deploy.js"
+  },
+  "keywords": ["deploy", "ssh", "scp"],
+  "author": "",
+  "license": "MIT"
+}
