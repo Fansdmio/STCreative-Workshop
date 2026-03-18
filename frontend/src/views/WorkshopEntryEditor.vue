@@ -270,7 +270,23 @@ function goBack() {
             <option value="after_example_messages">示例消息后</option>
             <option value="before_author_note">作者注释前</option>
             <option value="after_author_note">作者注释后</option>
-            <option value="at_depth">指定深度</option>
+            <option value="at_depth">@D 深度插入位置</option>
+          </select>
+        </div>
+
+        <!-- 插入深度（at_depth 时） -->
+        <div v-if="form.position_type === 'at_depth'" class="flex flex-col gap-1">
+          <label class="text-sm font-semibold" style="color:#78716C;">插入深度</label>
+          <input v-model.number="form.position_depth" type="number" class="input" min="0" />
+        </div>
+
+        <!-- 消息角色（at_depth 时） -->
+        <div v-if="form.position_type === 'at_depth'" class="flex flex-col gap-1">
+          <label class="text-sm font-semibold" style="color:#78716C;">消息角色</label>
+          <select v-model="form.position_role" class="input">
+            <option value="system">System</option>
+            <option value="user">User</option>
+            <option value="assistant">Assistant</option>
           </select>
         </div>
 
@@ -279,11 +295,20 @@ function goBack() {
           <label class="text-sm font-semibold" style="color:#78716C;">排列顺序</label>
           <input v-model.number="form.position_order" type="number" class="input" min="0" />
         </div>
+      </section>
 
-        <!-- 插入深度（at_depth 时） -->
-        <div v-if="form.position_type === 'at_depth'" class="flex flex-col gap-1">
-          <label class="text-sm font-semibold" style="color:#78716C;">插入深度</label>
-          <input v-model.number="form.position_depth" type="number" class="input" min="0" />
+      <!-- ── 触发递归设置 ─────────────────────────────── -->
+      <section class="flex flex-col gap-4 p-5" style="border:2px solid #FED7AA; border-radius:16px; background:white;">
+        <h2 class="font-bold text-base" style="font-family:'Fredoka',sans-serif; color:#92400E;">递归设置</h2>
+        <div class="flex flex-col gap-2">
+          <label class="flex items-center gap-2 cursor-pointer select-none">
+            <input v-model="form.recursion_prevent_incoming" type="checkbox" class="w-4 h-4 accent-orange-500" />
+            <span class="text-sm font-semibold" style="color:#78716C;">防止被其他条目递归触发</span>
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer select-none">
+            <input v-model="form.recursion_prevent_outgoing" type="checkbox" class="w-4 h-4 accent-orange-500" />
+            <span class="text-sm font-semibold" style="color:#78716C;">防止触发其他条目的递归</span>
+          </label>
         </div>
       </section>
 
@@ -348,16 +373,6 @@ function goBack() {
             <input v-model.number="form.probability" type="number" class="input" min="0" max="100" />
           </div>
 
-          <!-- 消息角色 -->
-          <div class="flex flex-col gap-1">
-            <label class="text-sm font-semibold" style="color:#78716C;">消息角色</label>
-            <select v-model="form.position_role" class="input">
-              <option value="system">System</option>
-              <option value="user">User</option>
-              <option value="assistant">Assistant</option>
-            </select>
-          </div>
-
           <!-- 延迟递归 -->
           <div class="flex flex-col gap-1">
             <label class="text-sm font-semibold" style="color:#78716C;">延迟到递归（delay_until）</label>
@@ -367,18 +382,6 @@ function goBack() {
               class="input"
               placeholder="可选，填数字或留空"
             />
-          </div>
-
-          <!-- 递归选项 -->
-          <div class="flex flex-col gap-2">
-            <label class="flex items-center gap-2 cursor-pointer select-none">
-              <input v-model="form.recursion_prevent_incoming" type="checkbox" class="w-4 h-4 accent-orange-500" />
-              <span class="text-sm font-semibold" style="color:#78716C;">防止被其他条目递归触发</span>
-            </label>
-            <label class="flex items-center gap-2 cursor-pointer select-none">
-              <input v-model="form.recursion_prevent_outgoing" type="checkbox" class="w-4 h-4 accent-orange-500" />
-              <span class="text-sm font-semibold" style="color:#78716C;">防止触发其他条目的递归</span>
-            </label>
           </div>
 
           <!-- 效果设置 -->

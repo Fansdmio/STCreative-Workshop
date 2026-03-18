@@ -79,9 +79,23 @@
             Discord 登录
           </button>
 
-          <!-- 已登录但非创作者：申请成为创作者（未登录也显示，方便引导） -->
+          <!-- 未登录：申请成为创作者，弹窗提示登录 -->
+          <button
+            v-if="!authStore.isLoggedIn && !authStore.loading"
+            @click="handleApplyClick"
+            class="inline-flex items-center gap-2 font-bold cursor-pointer transition-all duration-200"
+            style="font-family: 'Fredoka', sans-serif; font-size: 1.05rem; background: #FFFBF0; color: #EA580C; padding: 12px 28px; border-radius: 999px; box-shadow: 4px 4px 0 #EA580C, 0 0 0 2.5px #EA580C; transform: rotate(0.5deg); text-decoration: none;"
+          >
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 20h9"/>
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+            </svg>
+            申请成为创作者
+          </button>
+
+          <!-- 已登录但非创作者：申请成为创作者 -->
           <RouterLink
-            v-if="!authStore.isCreator && !authStore.loading"
+            v-if="authStore.isLoggedIn && !authStore.isCreator && !authStore.loading"
             to="/creator/apply"
             class="inline-flex items-center gap-2 font-bold cursor-pointer transition-all duration-200"
             style="font-family: 'Fredoka', sans-serif; font-size: 1.05rem; background: #FFFBF0; color: #EA580C; padding: 12px 28px; border-radius: 999px; box-shadow: 4px 4px 0 #EA580C, 0 0 0 2.5px #EA580C; transform: rotate(0.5deg); text-decoration: none;"
@@ -319,5 +333,8 @@ function goSearch() {
   showWorkshopModal.value = false
   modalSearch.value = ''
   router.push({ path: '/workshop', query: { q } })
+}
+const handleApplyClick = () => {
+  window.alert('请先登录')
 }
 </script>

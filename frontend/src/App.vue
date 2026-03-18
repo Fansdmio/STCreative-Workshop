@@ -56,10 +56,22 @@ import { onMounted } from 'vue'
 import { RouterView } from 'vue-router'
 import Navbar from '@/components/Navbar.vue'
 import { useAuthStore } from '@/stores/auth'
+import { useWorkshopStore } from '@/stores/workshop'
 
 const authStore = useAuthStore()
+const workshopStore = useWorkshopStore()
 
-onMounted(() => {
-  authStore.fetchMe()
+onMounted(async () => {
+  // 初始化认证状态（从 localStorage 恢复 JWT token 或验证 session）
+  await authStore.init()
+  
+  // 检测是否从 ST 扩展打开（iframe 或弹窗模式），立即初始化消息监听
+  // 必须在应用启动时就设置监听器，否则会错过扩展发送的 st_extension_opener 消息
+  const isInIframe = window.parent && window.parent !== window
+  const hasOpener = window.opener && window.opener !== window
+  if (isInIframe || hasOpener) {
+    console.log('[App] 检测到扩展模式，初始化 postMessage 监听器...')
+    await workshopStore.initStExtensionMode()
+  }
 })
 </script>

@@ -212,6 +212,7 @@ router.get('/', (req, res) => {
   const search = req.query.q ? String(req.query.q).trim() : null;
   const tag = req.query.tag ? String(req.query.tag).trim() : null;
   const authorId = req.query.author_id ? parseInt(req.query.author_id) : null;
+  const sort = req.query.sort === 'newest' ? 'newest' : 'popular'; // 默认按热度
 
   // 动态构建 WHERE 子句
   const whereClauses = [];
@@ -253,7 +254,7 @@ router.get('/', (req, res) => {
     JOIN users u ON p.author_id = u.id
     LEFT JOIN workshops w ON p.workshop_id = w.id
     ${whereSQL}
-    ORDER BY (p.like_count + p.sub_count) DESC, p.created_at DESC
+    ${sort === 'newest' ? 'ORDER BY p.created_at DESC' : 'ORDER BY (p.like_count + p.sub_count) DESC, p.created_at DESC'}
     LIMIT ? OFFSET ?
   `).all(...params, limit, offset);
 
@@ -537,7 +538,13 @@ router.post('/packs/:packId/entries', requireAuth, (req, res) => {
 
   const pack = db.prepare(`SELECT author_id FROM workshop_packs WHERE id = ?`).get(packId);
   if (!pack) return res.status(404).json({ error: '模组不存在' });
-  // 任何登录用户均可向工坊添加条目（无需为 pack 作者）
+  
+  // 只有模组作者或管理员才能添加条目
+  const isPackAuthor = pack.author_id === req.user.id;
+  const isAdmin = req.user.role === 'admin';
+  if (!isPackAuthor && !isAdmin) {
+    return res.status(403).json({ error: '只有模组作者或管理员才能添加条目' });
+  }
 
   const {
     name, enabled, content, strategy_type,
@@ -621,10 +628,14 @@ router.put('/entries/:entryId', requireAuth, (req, res) => {
 
   const existing = db.prepare(`SELECT e.*, p.author_id as pack_author_id FROM workshop_entries e JOIN workshop_packs p ON e.pack_id = p.id WHERE e.id = ?`).get(entryId);
   if (!existing) return res.status(404).json({ error: '条目不存在' });
-  // 条目作者或 pack 作者均可编辑
+  
+  // 条目作者、模组作者或管理员均可编辑
   const isEntryAuthor = existing.author_id === req.user.id;
   const isPackAuthor = existing.pack_author_id === req.user.id;
-  if (!isEntryAuthor && !isPackAuthor) return res.status(403).json({ error: '无权编辑此条目' });
+  const isAdmin = req.user.role === 'admin';
+  if (!isEntryAuthor && !isPackAuthor && !isAdmin) {
+    return res.status(403).json({ error: '无权编辑此条目' });
+  }
 
   const {
     name, enabled, content, strategy_type,
@@ -691,10 +702,14 @@ router.delete('/entries/:entryId', requireAuth, (req, res) => {
 
   const existing = db.prepare(`SELECT e.pack_id, e.author_id, p.author_id as pack_author_id FROM workshop_entries e JOIN workshop_packs p ON e.pack_id = p.id WHERE e.id = ?`).get(entryId);
   if (!existing) return res.status(404).json({ error: '条目不存在' });
-  // 条目作者或 pack 作者均可删除
+  
+  // 条目作者、模组作者或管理员均可删除
   const isEntryAuthor = existing.author_id === req.user.id;
   const isPackAuthor = existing.pack_author_id === req.user.id;
-  if (!isEntryAuthor && !isPackAuthor) return res.status(403).json({ error: '无权删除此条目' });
+  const isAdmin = req.user.role === 'admin';
+  if (!isEntryAuthor && !isPackAuthor && !isAdmin) {
+    return res.status(403).json({ error: '无权删除此条目' });
+  }
 
   db.prepare(`DELETE FROM workshop_entries WHERE id = ?`).run(entryId);
   db.prepare(`UPDATE workshop_packs SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(existing.pack_id);

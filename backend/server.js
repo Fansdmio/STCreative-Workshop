@@ -80,6 +80,9 @@ const discordStrategy = new DiscordStrategy(
         .get(profile.id);
 
       if (existing) {
+        if (existing.is_banned) {
+          return done(null, false, { message: '您的账号已被封禁，无法登录' });
+        }
         db.prepare(
           `UPDATE users SET username = ?, avatar = ?, display_name = ? WHERE discord_id = ?`
         ).run(profile.username, profile.avatar, profile.global_name || null, profile.id);

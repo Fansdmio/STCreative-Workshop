@@ -13,10 +13,13 @@ const authStore = useAuthStore()
 const packId = computed(() => parseInt(route.params.packId))
 const pack = computed(() => workshopStore.currentPack)
 const isOwner = computed(() => authStore.user && pack.value && authStore.user.id === pack.value.author.id)
-// 判断用户是否可编辑某条目（条目作者本人 或 pack 作者）
+const isAdmin = computed(() => authStore.user && authStore.user.role === 'admin')
+const canAddEntry = computed(() => isOwner.value || isAdmin.value)
+
+// 判断用户是否可编辑某条目（条目作者本人 或 pack 作者 或 管理员）
 function canEditEntry(entry) {
   if (!authStore.user) return false
-  return authStore.user.id === entry.author_id || isOwner.value
+  return authStore.user.id === entry.author_id || isOwner.value || isAdmin.value
 }
 const isStEnv = computed(() => workshopStore.isSillyTavernEnv())
 
@@ -250,13 +253,13 @@ watch(() => workshopStore.stNotification, (notif) => {
           条目列表
         </h2>
         <RouterLink
-          v-if="authStore.isLoggedIn"
+          v-if="canAddEntry"
           :to="{ name: 'workshop-entry-new', params: { packId: pack.id } }"
           class="btn-primary text-sm"
         >
           <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <line x1="12" y1="5" x2="12" y2="19"/>
-            <line x1="5" y1="12" x2="19" y2="12"/>
+            <line x1="5" y1="12" x2="19" y12="12"/>
           </svg>
           添加条目
         </RouterLink>
@@ -272,7 +275,7 @@ watch(() => workshopStore.stNotification, (notif) => {
           此模组还没有条目
         </p>
         <RouterLink
-          v-if="authStore.isLoggedIn"
+          v-if="canAddEntry"
           :to="{ name: 'workshop-entry-new', params: { packId: pack.id } }"
           class="btn-primary text-sm"
         >

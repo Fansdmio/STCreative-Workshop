@@ -1,5 +1,9 @@
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
+
 
 // ── 管理员登录状态 ────────────────────────────────────────────────────
 const adminLoggedIn = ref(false)
@@ -140,6 +144,18 @@ async function changeRole(userId, role) {
 async function deleteUser(userId, username) {
   if (!confirm(`确认删除用户「${username}」？此操作不可恢复，其所有模组也将被删除。`)) return
   await fetch(`/admin/users/${userId}`, { method: 'DELETE', credentials: 'include' })
+  await loadUsers(userPage.value)
+}
+
+async function changeBanStatus(userId, isBanned, username) {
+  const action = isBanned ? '封禁' : '解封'
+  if (!confirm(`确认${action}用户「${username}」？`)) return
+  await fetch(`/admin/users/${userId}/ban`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ is_banned: isBanned ? 1 : 0 }),
+  })
   await loadUsers(userPage.value)
 }
 
@@ -387,7 +403,10 @@ onMounted(async () => {
               </p>
               <p v-if="w.description" class="text-sm rounded-xl px-3 py-2 mt-1" style="background:#FFFBF0; border:1.5px solid #FED7AA; color:#78350F; font-family:'Nunito',sans-serif; word-break:break-word;">{{ w.description }}</p>
             </div>
-            <button v-if="w.author_id !== null" class="btn-danger text-xs px-3 py-1.5 flex-shrink-0" @click="deleteWorkshop(w.id, w.name)">删除</button>
+            <div class="flex flex-col gap-2 flex-shrink-0 sm:w-24">
+              <button v-if="w.author_id !== null" class="btn-secondary text-xs px-3 py-1.5 w-full text-center" @click="router.push({ name: 'workshop-edit', params: { id: w.id } })">编辑</button>
+              <button v-if="w.author_id !== null" class="btn-danger text-xs px-3 py-1.5 w-full text-center" @click="deleteWorkshop(w.id, w.name)">删除</button>
+            </div>
           </div>
         </div>
       </div>
@@ -410,10 +429,15 @@ onMounted(async () => {
               class="w-9 h-9 rounded-full object-cover flex-shrink-0" style="border:2px solid #FDBA74;" />
             <div class="flex-1 min-w-0">
               <p class="font-bold text-sm" style="font-family:'Fredoka',sans-serif; color:#431407;">{{ u.username }}</p>
-              <p class="text-xs" style="color:#A8A29E; font-family:'Nunito',sans-serif;">注册于 {{ fmtDate(u.created_at) }}</p>
+              <div class="flex items-center gap-2 mt-0.5">
+                <span v-if="u.is_banned" class="text-xs px-2 py-0.5 rounded-full border font-bold" style="background:#FEE2E2; color:#991B1B; border-color:#FCA5A5;">已封禁</span>
+                <p class="text-xs" style="color:#A8A29E; font-family:'Nunito',sans-serif;">注册于 {{ fmtDate(u.created_at) }}</p>
+              </div>
             </div>
             <span class="text-xs px-2.5 py-1 rounded-full border font-bold" :style="roleStyle(u.role)">{{ roleLabel(u.role) }}</span>
-            <div class="flex gap-1.5 flex-wrap">
+            <div class="flex gap-1.5 flex-wrap" @click.stop>
+              <button v-if="!u.is_banned" class="text-xs px-3 py-1.5 rounded-full font-bold cursor-pointer transition-all" style="background:#FEF9C3; color:#854D0E; border:1.5px solid #FDE047;" @click="changeBanStatus(u.id, true, u.username)">封禁</button>
+              <button v-else class="text-xs px-3 py-1.5 rounded-full font-bold cursor-pointer transition-all" style="background:#DCFCE7; color:#14532D; border:1.5px solid #22C55E;" @click="changeBanStatus(u.id, false, u.username)">解封</button>
               <button v-if="u.role!=='creator'" class="text-xs px-3 py-1.5 rounded-full font-bold cursor-pointer transition-all" style="background:#DCFCE7; color:#14532D; border:1.5px solid #22C55E;" @click="changeRole(u.id,'creator')">设为创作者</button>
               <button v-if="u.role!=='user'" class="text-xs px-3 py-1.5 rounded-full font-bold cursor-pointer transition-all" style="background:#F1F5F9; color:#475569; border:1.5px solid #CBD5E1;" @click="changeRole(u.id,'user')">重置为普通</button>
               <button class="text-xs px-3 py-1.5 rounded-full font-bold cursor-pointer transition-all" style="background:#FEE2E2; color:#991B1B; border:1.5px solid #FCA5A5;" @click="deleteUser(u.id,u.username)">删除</button>
@@ -448,7 +472,10 @@ onMounted(async () => {
               style="background:#FFF7ED;color:#78350F;border-color:#FDBA74;">
               {{ p.workshop_name || p.section || '未知工坊' }}
             </span>
-            <button class="btn-danger text-xs px-3 py-1.5 flex-shrink-0" @click="deletePack(p.id,p.title)">删除</button>
+            <div class="flex gap-2 flex-shrink-0">
+              <button class="btn-secondary text-xs px-3 py-1.5" @click="router.push({ name: 'workshop-pack-edit', params: { packId: p.id } })">编辑</button>
+              <button class="btn-danger text-xs px-3 py-1.5" @click="deletePack(p.id,p.title)">删除</button>
+            </div>
           </div>
         </div>
         <div v-if="packPagination.totalPages>1" class="flex items-center justify-center gap-3 mt-6">

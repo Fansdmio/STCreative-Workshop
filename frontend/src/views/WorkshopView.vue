@@ -60,6 +60,9 @@ watch(searchInput, (val) => {
   debounceTimer = setTimeout(() => { activeSearch.value = val.trim() }, 400)
 })
 
+// ── 排序 ──────────────────────────────────────────────────────────────
+const currentSort = ref('popular') // 'popular' | 'newest'
+
 // ── Tag 多选过滤 ──────────────────────────────────────────────────────
 const activeTags = ref([])
 
@@ -125,11 +128,12 @@ async function load(page = 1) {
     tag: activeTags.value.length === 1 ? activeTags.value[0] : undefined,
     // ?mine=1：仅显示当前用户自己的模组
     authorId: showMine.value ? authStore.user?.id : undefined,
+    sort: currentSort.value,
   })
 }
 
-// 工坊/搜索/mine 变化时重新拉第 1 页（tag 变化只影响客户端过滤，不重新请求）
-watch([workshopSlug, activeSearch, showMine], () => load(1))
+// 工坊/搜索/mine/排序 变化时重新拉第 1 页（tag 变化只影响客户端过滤，不重新请求）
+watch([workshopSlug, activeSearch, showMine, currentSort], () => load(1))
 
 // 工坊切换时重新加载对应世界书名称，并关闭编辑态
 watch(workshopSlug, (newSlug) => {
@@ -316,18 +320,24 @@ const newModRoute = computed(() => ({
 
     <!-- 搜索栏 + tag 过滤 -->
     <div class="flex flex-col gap-3 mb-6">
-      <!-- 搜索输入 -->
-      <div class="relative">
-        <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style="color:#A8A29E;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-        </svg>
-        <input
-          v-model="searchInput"
-          type="text"
-          class="input pl-9 text-sm"
-          placeholder="搜索模组名称…"
-          style="font-family:'Nunito',sans-serif;"
-        />
+      <!-- 搜索输入与排序 -->
+      <div class="flex items-center gap-2">
+        <div class="relative flex-1">
+          <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style="color:#A8A29E;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input
+            v-model="searchInput"
+            type="text"
+            class="input pl-9 text-sm"
+            placeholder="搜索模组名称…"
+            style="font-family:'Nunito',sans-serif;"
+          />
+        </div>
+        <select v-model="currentSort" class="input w-32 text-sm" style="font-family:'Nunito',sans-serif;">
+          <option value="popular">按热度排序</option>
+          <option value="newest">按最新发布</option>
+        </select>
       </div>
 
       <!-- Tag 过滤 chips -->

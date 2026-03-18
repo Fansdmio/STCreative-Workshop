@@ -3,6 +3,7 @@ import { ref, watch, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useWorkshopStore } from '@/stores/workshop'
 import { useAuthStore } from '@/stores/auth'
+import ConfirmModal from '@/components/ConfirmModal.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -11,6 +12,8 @@ const authStore = useAuthStore()
 
 const workshopId = parseInt(route.params.id)
 const saving = ref(false)
+const deleting = ref(false)
+const showDeleteModal = ref(false)
 const loadError = ref('')
 
 const form = ref({
@@ -79,6 +82,21 @@ async function handleSubmit() {
 
 function goBack() {
   router.back()
+}
+
+// ── 删除工坊 ─────────────────────────────────────────────────────────
+async function handleDelete() {
+  deleting.value = true
+  workshopStore.error = null
+  
+  const success = await workshopStore.deleteWorkshop(workshopId)
+  
+  deleting.value = false
+  showDeleteModal.value = false
+  
+  if (success) {
+    router.push({ name: 'home' })
+  }
 }
 </script>
 
@@ -173,6 +191,37 @@ function goBack() {
         </button>
       </div>
 
+      <!-- 危险区域：删除工坊 -->
+      <div
+        class="flex flex-col gap-3 p-5 mt-4"
+        style="border:2px solid #FECACA; border-radius:16px; background:#FEF2F2;"
+      >
+        <h2 class="font-bold text-base" style="font-family:'Fredoka',sans-serif; color:#DC2626;">
+          危险操作
+        </h2>
+        <p class="text-sm" style="color:#78716C; font-family:'Nunito',sans-serif;">
+          删除工坊将同时删除该工坊下的所有模组和条目，此操作不可撤销。
+        </p>
+        <button
+          type="button"
+          class="btn-danger self-start"
+          @click="showDeleteModal = true"
+        >
+          删除工坊
+        </button>
+      </div>
+
     </form>
+
+    <!-- 删除确认弹窗 -->
+    <ConfirmModal
+      v-if="showDeleteModal"
+      title="确认删除工坊"
+      :message="`确定要删除工坊「${form.name}」吗？<br>此操作将删除该工坊下的所有模组和条目，且不可撤销。`"
+      confirmText="删除"
+      confirmVariant="danger"
+      @confirm="handleDelete"
+      @cancel="showDeleteModal = false"
+    />
   </div>
 </template>

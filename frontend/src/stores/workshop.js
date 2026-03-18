@@ -2,6 +2,9 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { getWorldbookName, saveWorldbookName } from '@/config/sections'
 
+// localStorage 键名
+const TOKEN_KEY = 'workshop_auth_token'
+
 // 检测 SillyTavern 环境（直接嵌入 iframe 模式）
 function isSillyTavernEnv() {
   return typeof window !== 'undefined' && typeof window.SillyTavern !== 'undefined'
@@ -15,6 +18,37 @@ function isFromStExtension() {
   // iframe 模式：嵌入在 SillyTavern 页面的 iframe 中
   if (window.parent && window.parent !== window) return true
   return false
+}
+
+/**
+ * 获取认证 token（直接从 localStorage 读取，不依赖 Pinia）
+ */
+function getAuthToken() {
+  try {
+    return localStorage.getItem(TOKEN_KEY) || ''
+  } catch (e) {
+    return ''
+  }
+}
+
+/**
+ * 带认证的 fetch 封装
+ * 自动添加 Authorization header（如果有 token）
+ * 直接从 localStorage 读取 token，避免循环依赖
+ */
+export async function authFetch(url, options = {}) {
+  options = options || {}
+  options.headers = options.headers || {}
+  
+  const token = getAuthToken()
+  if (token) {
+    options.headers['Authorization'] = 'Bearer ' + token
+  }
+  
+  return fetch(url, {
+    ...options,
+    credentials: 'include',
+  })
 }
 
 // 将 workshop entry 转换为 TavernHelper WorldbookEntry 格式（不含 uid，由 TH 自动分配）
@@ -118,7 +152,7 @@ export const useWorkshopStore = defineStore('workshop', () => {
     mySubscriptionsLoading.value = true
     error.value = null
     try {
-      const res = await fetch('/api/workshop/my-subscriptions', { credentials: 'include' })
+      const res = await authFetch('/api/workshop/my-subscriptions')
       if (!res.ok) throw new Error('获取订阅列表失败')
       const json = await res.json()
       mySubscriptions.value = json.data
@@ -132,7 +166,7 @@ export const useWorkshopStore = defineStore('workshop', () => {
   async function fetchWorkshops() {
     workshopsLoading.value = true
     try {
-      const res = await fetch('/api/workshop/workshops', { credentials: 'include' })
+      const res = await authFetch('/api/workshop/workshops')
       if (!res.ok) throw new Error('获取工坊列表失败')
       const json = await res.json()
       workshops.value = json.data
@@ -146,9 +180,8 @@ export const useWorkshopStore = defineStore('workshop', () => {
   async function createWorkshop(payload) {
     error.value = null
     try {
-      const res = await fetch('/api/workshop/workshops', {
+      const res = await authFetch('/api/workshop/workshops', {
         method: 'POST',
-        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
@@ -168,9 +201,8 @@ export const useWorkshopStore = defineStore('workshop', () => {
   async function updateWorkshop(id, payload) {
     error.value = null
     try {
-      const res = await fetch(`/api/workshop/workshops/${id}`, {
+      const res = await authFetch(`/api/workshop/workshops/${id}`, {
         method: 'PUT',
-        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
@@ -188,10 +220,30 @@ export const useWorkshopStore = defineStore('workshop', () => {
     }
   }
 
+  async function deleteWorkshop(id) {
+    error.value = null
+    try {
+      const res = await authFetch(`/api/workshop/workshops/${id}`, {
+        method: 'DELETE',
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        error.value = json.error || '删除工坊失败'
+        return false
+      }
+      // 从本地缓存移除
+      workshops.value = workshops.value.filter(w => w.id !== id)
+      return true
+    } catch (err) {
+      error.value = err.message || '删除工坊失败'
+      return false
+    }
+  }
+
   // ── Pack API 操作 ────────────────────────────────────────────
 
-  // fetchPacks(page, { workshop, search, tag, authorId })
-  async function fetchPacks(page = 1, { workshop, search, tag, authorId } = {}) {
+  // fetchPacks(page, { workshop, search, tag, authorId, sort })
+  async function fetchPacks(page = 1, { workshop, search, tag, authorId, sort = 'popular' } = {}) {
     loading.value = true
     error.value = null
     try {
@@ -200,7 +252,9 @@ export const useWorkshopStore = defineStore('workshop', () => {
       if (search) params.set('q', search)
       if (tag) params.set('tag', tag)
       if (authorId) params.set('author_id', authorId)
-      const res = await fetch(`/api/workshop?${params}`, { credentials: 'include' })
+      if (sort) params.set('sort', sort)
+
+      const res = await authFetch(`/api/workshop?${params}`)
       if (!res.ok) throw new Error('获取 Pack 列表失败')
       const json = await res.json()
       packs.value = json.data
@@ -216,7 +270,7 @@ export const useWorkshopStore = defineStore('workshop', () => {
     currentPackLoading.value = true
     error.value = null
     try {
-      const res = await fetch(`/api/workshop/packs/${packId}`, { credentials: 'include' })
+      const res = await authFetch(`/api/workshop/packs/${packId}`)
       if (!res.ok) throw new Error('获取 Pack 详情失败')
       const json = await res.json()
       currentPack.value = json.data
@@ -232,9 +286,8 @@ export const useWorkshopStore = defineStore('workshop', () => {
   async function createPack(payload) {
     error.value = null
     try {
-      const res = await fetch('/api/workshop/packs', {
+      const res = await authFetch('/api/workshop/packs', {
         method: 'POST',
-        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
@@ -253,9 +306,8 @@ export const useWorkshopStore = defineStore('workshop', () => {
   async function updatePack(packId, payload) {
     error.value = null
     try {
-      const res = await fetch(`/api/workshop/packs/${packId}`, {
+      const res = await authFetch(`/api/workshop/packs/${packId}`, {
         method: 'PUT',
-        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
@@ -274,9 +326,8 @@ export const useWorkshopStore = defineStore('workshop', () => {
   async function deletePack(packId) {
     error.value = null
     try {
-      const res = await fetch(`/api/workshop/packs/${packId}`, {
+      const res = await authFetch(`/api/workshop/packs/${packId}`, {
         method: 'DELETE',
-        credentials: 'include',
       })
       const json = await res.json()
       if (!res.ok) {
@@ -296,9 +347,8 @@ export const useWorkshopStore = defineStore('workshop', () => {
   async function toggleLike(packId) {
     error.value = null
     try {
-      const res = await fetch(`/api/workshop/packs/${packId}/like`, {
+      const res = await authFetch(`/api/workshop/packs/${packId}/like`, {
         method: 'POST',
-        credentials: 'include',
       })
       const json = await res.json()
       if (!res.ok) {
@@ -327,9 +377,8 @@ export const useWorkshopStore = defineStore('workshop', () => {
   async function toggleSubscribe(pack) {
     error.value = null
     try {
-      const res = await fetch(`/api/workshop/packs/${pack.id}/subscribe`, {
+      const res = await authFetch(`/api/workshop/packs/${pack.id}/subscribe`, {
         method: 'POST',
-        credentials: 'include',
       })
       const json = await res.json()
       if (!res.ok) {
@@ -378,7 +427,7 @@ export const useWorkshopStore = defineStore('workshop', () => {
 
   async function fetchEntry(entryId) {
     try {
-      const res = await fetch(`/api/workshop/entries/${entryId}`, { credentials: 'include' })
+      const res = await authFetch(`/api/workshop/entries/${entryId}`)
       if (!res.ok) throw new Error('获取条目失败')
       const json = await res.json()
       return json.data
@@ -391,9 +440,8 @@ export const useWorkshopStore = defineStore('workshop', () => {
   async function createEntry(packId, payload) {
     error.value = null
     try {
-      const res = await fetch(`/api/workshop/packs/${packId}/entries`, {
+      const res = await authFetch(`/api/workshop/packs/${packId}/entries`, {
         method: 'POST',
-        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
@@ -412,9 +460,8 @@ export const useWorkshopStore = defineStore('workshop', () => {
   async function updateEntry(entryId, payload) {
     error.value = null
     try {
-      const res = await fetch(`/api/workshop/entries/${entryId}`, {
+      const res = await authFetch(`/api/workshop/entries/${entryId}`, {
         method: 'PUT',
-        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
@@ -433,9 +480,8 @@ export const useWorkshopStore = defineStore('workshop', () => {
   async function deleteEntry(entryId) {
     error.value = null
     try {
-      const res = await fetch(`/api/workshop/entries/${entryId}`, {
+      const res = await authFetch(`/api/workshop/entries/${entryId}`, {
         method: 'DELETE',
-        credentials: 'include',
       })
       const json = await res.json()
       if (!res.ok) {
@@ -549,7 +595,9 @@ export const useWorkshopStore = defineStore('workshop', () => {
       }, 20000)
 
       _pending[requestKey] = { resolve, reject, timer }
-      targetWindow.postMessage({ type, payload }, '*')
+      // 使用 JSON 深拷贝，确保 Vue reactive proxy 转换为纯对象，避免 DataCloneError
+      const plainPayload = JSON.parse(JSON.stringify(payload))
+      targetWindow.postMessage({ type, payload: plainPayload }, '*')
     })
   }
 
@@ -613,7 +661,7 @@ export const useWorkshopStore = defineStore('workshop', () => {
       // 获取完整条目（如果当前 pack 没有 entries）
       let entries = pack.entries
       if (!entries) {
-        const res = await fetch(`/api/workshop/packs/${pack.id}`, { credentials: 'include' })
+        const res = await authFetch(`/api/workshop/packs/${pack.id}`)
         if (!res.ok) throw new Error('获取 Pack 详情失败')
         const json = await res.json()
         entries = json.data.entries || []
@@ -718,7 +766,7 @@ export const useWorkshopStore = defineStore('workshop', () => {
       // 获取最新 pack 数据（含所有条目）
       let entries = pack.entries
       if (!entries) {
-        const res = await fetch(`/api/workshop/packs/${pack.id}`, { credentials: 'include' })
+        const res = await authFetch(`/api/workshop/packs/${pack.id}`)
         if (!res.ok) throw new Error('获取 Pack 详情失败')
         const json = await res.json()
         entries = json.data.entries || []
@@ -819,6 +867,10 @@ export const useWorkshopStore = defineStore('workshop', () => {
     setWorldbookName,
     loadWorldbookForSection,
     initStExtensionMode,
+    // 工坊管理
+    createWorkshop,
+    updateWorkshop,
+    deleteWorkshop,
     // 工具函数
     isSillyTavernEnv,
     isFromStExtension,

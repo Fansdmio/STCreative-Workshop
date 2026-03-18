@@ -4,6 +4,7 @@ import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 
 export default defineConfig({
+ base: '/',
   plugins: [
     vue(),
     tailwindcss(),
@@ -14,6 +15,7 @@ export default defineConfig({
     },
   },
   server: {
+    host: '0.0.0.0', // 监听所有地址，允许通过 127.0.0.1 访问
     port: 5173,
     proxy: {
       '/api': {

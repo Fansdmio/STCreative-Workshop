@@ -283,6 +283,13 @@ function initSchema() {
   } catch (_) {
     // 忽略（用户可能尚未登录过，待首次登录后自动回填）
   }
+
+  // 迁移：给 users 添加 is_banned 列（黑名单）
+  try {
+    db.exec(`ALTER TABLE users ADD COLUMN is_banned INTEGER NOT NULL DEFAULT 0`);
+  } catch (_) {
+    // 列已存在，忽略
+  }
 }
 
 module.exports = { getDb };

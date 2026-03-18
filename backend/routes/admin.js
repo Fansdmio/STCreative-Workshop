@@ -149,6 +149,7 @@ router.get('/users', requireAdmin, (req, res) => {
       username: u.username,
       avatar: u.avatar,
       role: u.role || 'user',
+      is_banned: !!u.is_banned,
       created_at: u.created_at,
     }));
 
@@ -174,7 +175,21 @@ router.put('/users/:id/role', requireAdmin, (req, res) => {
     if (info.changes === 0) return res.status(404).json({ error: '用户不存在' });
     res.json({ ok: true });
   } catch (err) {
-    console.error('[Admin] 修改角色失败:', err);
+    console.error('[Admin] 修改用户角色失败:', err);
+    res.status(500).json({ error: '服务器内部错误' });
+  }
+});
+
+// PUT /admin/users/:id/ban — 修改用户封禁状态 { is_banned: boolean }
+router.put('/users/:id/ban', requireAdmin, (req, res) => {
+  try {
+    const db = getDb();
+    const is_banned = req.body.is_banned ? 1 : 0;
+    const info = db.prepare(`UPDATE users SET is_banned = ? WHERE id = ?`).run(is_banned, req.params.id);
+    if (info.changes === 0) return res.status(404).json({ error: '用户不存在' });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[Admin] 修改用户封禁状态失败:', err);
     res.status(500).json({ error: '服务器内部错误' });
   }
 });

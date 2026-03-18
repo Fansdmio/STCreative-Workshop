@@ -1,16 +1,46 @@
 <script setup>
-import { onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { useWorkshopStore } from '@/stores/workshop'
+import { useWorkshopStore, authFetch } from '@/stores/workshop'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
 const workshopStore = useWorkshopStore()
 const authStore = useAuthStore()
 
+const myPacks = ref([])
+const myPacksLoading = ref(false)
+
 onMounted(async () => {
   await workshopStore.fetchMySubscriptions()
+  
+  if (authStore.loading) {
+    const unwatch = watch(() => authStore.loading, (loading) => {
+      if (!loading && authStore.user) {
+        fetchMyPacks()
+      }
+      unwatch()
+    })
+  } else if (authStore.user) {
+    fetchMyPacks()
+  }
 })
+
+async function fetchMyPacks() {
+  myPacksLoading.value = true
+  try {
+    const res = await authFetch(`/api/workshop?author_id=${authStore.user.id}&limit=50`)
+    const json = await res.json()
+    if (res.ok) {
+      // 兼容两种返回格式：json.packs 或 json.data
+      myPacks.value = json.packs || json.data || []
+    }
+  } catch (err) {
+    console.error('获取发布的模组失败:', err)
+  } finally {
+    myPacksLoading.value = false
+  }
+}
 
 // 跳转到模组详情
 function goToPack(packId) {
@@ -112,9 +142,6 @@ function formatDate(dateStr) {
         <p class="text-sm font-semibold" style="color: #C0B8B0; font-family: 'Fredoka', sans-serif;">
           还没有订阅任何模组
         </p>
-        <RouterLink to="/workshop" class="btn-primary text-sm">
-          去工坊逛逛
-        </RouterLink>
       </div>
 
       <!-- 订阅列表 -->
@@ -173,6 +200,83 @@ function formatDate(dateStr) {
             >
               取消订阅
             </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 自己发布的模组 -->
+    <section class="mt-12">
+      <h2
+        class="font-bold text-lg mb-4 flex items-center gap-2"
+        style="font-family: 'Fredoka', sans-serif; color: #7C3AED;"
+      >
+        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 19l7-7 3 3-7 7-3-3z"/>
+          <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/>
+          <path d="M2 2l7.586 7.586"/>
+          <circle cx="11" cy="11" r="2"/>
+        </svg>
+        自己发布的模组
+        <span
+          class="text-xs font-bold px-2 py-0.5 rounded-full ml-1"
+          style="background: #F3E8FF; color: #7C3AED; border: 1.5px solid #C4B5FD;"
+        >
+          {{ myPacks.length }}
+        </span>
+      </h2>
+
+      <!-- 加载中 -->
+      <div v-if="myPacksLoading" class="flex justify-center py-16">
+        <div class="w-9 h-9 rounded-full animate-spin" style="border: 3px solid #E9D5FF; border-top-color: #8B5CF6;"></div>
+      </div>
+
+      <!-- 空状态 -->
+      <div
+        v-else-if="!myPacks.length"
+        class="flex flex-col items-center justify-center py-16 gap-3"
+        style="border: 2px dashed #E9D5FF; border-radius: 16px;"
+      >
+        <svg class="w-10 h-10" viewBox="0 0 24 24" fill="none" stroke="#C4B5FD" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="12" y1="18" x2="12" y2="12"/>
+          <line x1="9" y1="15" x2="15" y2="15"/>
+        </svg>
+        <p class="text-sm font-semibold" style="color: #A78BFA; font-family: 'Fredoka', sans-serif;">
+          还没有发布过任何模组
+        </p>
+      </div>
+
+      <!-- 列表 -->
+      <div v-else class="flex flex-col gap-3">
+        <div
+          v-for="pack in myPacks"
+          :key="pack.id"
+          class="card flex flex-col gap-3 p-5 cursor-pointer"
+          @click="goToPack(pack.id)"
+        >
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-bold px-2 py-0.5 rounded-md" style="background:#FEF3C7; color:#9333EA; font-family:'Nunito',sans-serif;">
+              {{ pack.workshop_name }}
+            </span>
+            <span class="ml-auto text-xs" style="color: #C0B8B0; font-family: 'Nunito', sans-serif;">
+              {{ formatDate(pack.created_at) }} 发布
+            </span>
+          </div>
+
+          <h3 class="font-bold text-base leading-snug" style="font-family: 'Fredoka', sans-serif; color: #431407;">
+            {{ pack.title }}
+          </h3>
+
+          <p v-if="pack.description" class="text-sm line-clamp-2" style="color: #78716C; font-family: 'Nunito', sans-serif;">
+            {{ pack.description }}
+          </p>
+
+          <div class="flex items-center gap-3 mt-1 text-xs" style="color: #A8A29E; font-family: 'Nunito', sans-serif;">
+            <span>{{ pack.entry_count }} 条条目</span>
+            <span>{{ pack.sub_count }} 订阅</span>
+            <span>{{ pack.like_count }} 点赞</span>
           </div>
         </div>
       </div>

@@ -97,6 +97,13 @@ const routes = [
     name: 'admin',
     component: () => import('@/views/AdminView.vue'),
   },
+
+  // ── OAuth 回调（弹窗模式用）────────────────────────────────
+  {
+    path: '/oauth-callback',
+    name: 'oauth-callback',
+    component: () => import('@/views/OAuthCallbackView.vue'),
+  },
 ]
 
 const router = createRouter({
